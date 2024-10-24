@@ -189,11 +189,6 @@ def plot_strokes_3d(sp_first, stroke_vector, diameter_vector, start_points, end_
     # Show the plot
     plt.show()
 
-# Input from the user (old)
-# radius = float(input("Enter the radius of the half-cylinder: "))
-# tool_width = float(input("Enter the width of the tooltip: "))
-# overlap = float(input("Enter the minimum allowed overlap between strokes: "))
-
 # Input from the user
 tool_width = float(input("Enter the width of the tooltip: "))
 overlap = float(input("Enter the minimum allowed overlap between strokes: "))
