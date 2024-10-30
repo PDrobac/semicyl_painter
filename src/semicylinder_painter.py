@@ -1,10 +1,10 @@
-import sys
 import math
 import numpy as np
 import matplotlib.pyplot as plt
 import tf.transformations as tft
+import rospy
+from std_msgs.msg import Header
 from geometry_msgs.msg import Pose, Point
-from mpl_toolkits.mplot3d import Axes3D
 
 def string_to_point(point_string):
     # Split the string
@@ -428,64 +428,114 @@ def plot_strokes_3d(sp_first, stroke_vector, diameter_vector, start_points, star
     # Show the plot
     plt.show()
 
-# Input from the user
-tool_width = float(input("Enter the width of the tooltip: "))
-overlap = float(input("Enter the minimum allowed overlap between strokes: "))
+def publish_poses(start_poses, end_poses, start_hover_poses, end_hover_poses):
+    """
+    Publish the poses of the tool strokes.
+    
+    Parameters:
+    start_poses (list): List of Pose stroke start poses.
+    end_poses (list): List of Pose stroke end poses.
+    start_hover_poses (list): List of pose stroke start hover poses.
+    end_hover_poses (list): List of pose stroke end hover poses.
+    """
+    # Initialize the ROS node
+    rospy.init_node('pose_publisher_node', anonymous=True)
 
-sp_first_str = input("Enter the coordinates of the first start point separated by spaces: ")
-ep_first_str = input("Enter the coordinates of the first end point separated by spaces: ")
-sp_last_str = input("Enter the coordinates of the last start point separated by spaces: ")
-#ep_last_str = input("Enter the coordinates of the last end point separated by spaces: ")
+    # Create publishers for Pose messages
+    start_pub = rospy.Publisher('start_poses', Pose, queue_size=100)
+    end_pub = rospy.Publisher('end_poses', Pose, queue_size=100)
+    start_hover_pub = rospy.Publisher('start_hover_poses', Pose, queue_size=100)
+    end_hover_pub = rospy.Publisher('end_hover_poses', Pose, queue_size=100)
 
-# Truncate tool width to include overlap
-tool_width -= overlap
-if tool_width <= 0.0:
-    raise ValueError("The tool width must be greater than the overlap.")
+    rospy.sleep(1)
 
-# Convert the point input strings into individual values
-sp_first = string_to_point(sp_first_str)
-ep_first = string_to_point(ep_first_str)
-sp_last = string_to_point(sp_last_str)
+    # Publish start poses
+    for pose in start_poses:
+        start_pub.publish(pose)
+        rospy.loginfo(f"Published Start Pose: {pose}")
 
-# Calculate the diameter vector from sp_first to sp_last
-diameter_vector = vector_between_points(sp_first, sp_last) # This is our x-axis
-diameter = np.linalg.norm(diameter_vector)
-if diameter == 0:
-    raise ValueError("Diameter cannot be zero.")
-diameter_vector /= diameter  # This is our x-axis
+    # Publish end poses
+    for pose in end_poses:
+        end_pub.publish(pose)
+        rospy.loginfo(f"Published End Pose: {pose}")
 
-# Calculate the depth vector
-depth_vector = np.cross(vector_between_points(sp_first, ep_first), diameter_vector)
-depth = np.linalg.norm(depth_vector)
-if depth == 0:
-    raise ValueError("Depth cannot be zero.")
-depth_vector /= depth  # This is our y-axis
+    # Publish start hover poses
+    for pose in start_hover_poses:
+        start_hover_pub.publish(pose)
+        rospy.loginfo(f"Published Start Hover Pose: {pose}")
 
-# Calculate the stroke direction vector
-stroke_vector = np.cross(diameter_vector, depth_vector)# This is our z-axis
-tf_vector = np.linalg.norm(vector_between_points(sp_first, ep_first)) * stroke_vector
+    # Publish end hover poses
+    for pose in end_hover_poses:
+        end_hover_pub.publish(pose)
+        rospy.loginfo(f"Published End Hover Pose: {pose}")
 
-# Calculate cylinder radius
-radius = diameter / 2
+def main():
+    # Input from the user
+    tool_width = float(input("Enter the width of the tooltip: "))
+    overlap = float(input("Enter the minimum allowed overlap between strokes: "))
 
-# Calculate the number of tool strokes
-num_strokes = calculate_tool_strokes(radius, tool_width)
-if num_strokes < 2:
-    raise ValueError("Number of strokes must be at least 2 (tool width too big).")
+    sp_first_str = input("Enter the coordinates of the first start point separated by spaces: ")
+    ep_first_str = input("Enter the coordinates of the first end point separated by spaces: ")
+    sp_last_str = input("Enter the coordinates of the last start point separated by spaces: ")
+    #ep_last_str = input("Enter the coordinates of the last end point separated by spaces: ")
 
-# Find the start points of each stroke on the semicircle
-# start_points = find_start_points_on_semicircle(radius, num_strokes, tool_width)
-start_poses, hover_poses = find_poses_on_semicircle(radius, num_strokes, tool_width, 0.5)
+    # Truncate tool width to include overlap
+    tool_width -= overlap
+    if tool_width <= 0.0:
+        raise ValueError("The tool width must be greater than the overlap.")
 
-# Calculate the transformed start and end points
-transformation_matrix = np.eye(4)
-transformation_matrix[:3, :3] = np.column_stack((diameter_vector, depth_vector, stroke_vector))
-transformation_matrix[:3, 3] = np.array([sp_first.x, sp_first.y, sp_first.z])
+    # Convert the point input strings into individual values
+    sp_first = string_to_point(sp_first_str)
+    ep_first = string_to_point(ep_first_str)
+    sp_last = string_to_point(sp_last_str)
 
-start_poses_tf = transform_poses(start_poses, transformation_matrix)
-start_poses_hover_tf = transform_poses(hover_poses, transformation_matrix)
-end_poses_tf = translate_poses(start_poses_tf, tf_vector)
-end_poses_hover_tf = translate_poses(start_poses_hover_tf, tf_vector)
+    # Calculate the diameter vector from sp_first to sp_last
+    diameter_vector = vector_between_points(sp_first, sp_last) # This is our x-axis
+    diameter = np.linalg.norm(diameter_vector)
+    if diameter == 0:
+        raise ValueError("Diameter cannot be zero.")
+    diameter_vector /= diameter  # This is our x-axis
 
-# Plot the start and end points on the cylinder
-plot_strokes_3d(sp_first, stroke_vector, diameter_vector, convert_poses_to_points(start_poses_tf), convert_poses_to_points(start_poses_hover_tf), tf_vector, transformation_matrix, radius)
+    # Calculate the depth vector
+    depth_vector = np.cross(vector_between_points(sp_first, ep_first), diameter_vector)
+    depth = np.linalg.norm(depth_vector)
+    if depth == 0:
+        raise ValueError("Depth cannot be zero.")
+    depth_vector /= depth  # This is our y-axis
+
+    # Calculate the stroke direction vector
+    stroke_vector = np.cross(diameter_vector, depth_vector)# This is our z-axis
+    tf_vector = np.linalg.norm(vector_between_points(sp_first, ep_first)) * stroke_vector
+
+    # Calculate cylinder radius
+    radius = diameter / 2
+
+    # Calculate the number of tool strokes
+    num_strokes = calculate_tool_strokes(radius, tool_width)
+    if num_strokes < 2:
+        raise ValueError("Number of strokes must be at least 2 (tool width too big).")
+
+    # Find the start points of each stroke on the semicircle
+    # start_points = find_start_points_on_semicircle(radius, num_strokes, tool_width)
+    start_poses, hover_poses = find_poses_on_semicircle(radius, num_strokes, tool_width, 0.5)
+
+    # Calculate the transformed start and end points
+    transformation_matrix = np.eye(4)
+    transformation_matrix[:3, :3] = np.column_stack((diameter_vector, depth_vector, stroke_vector))
+    transformation_matrix[:3, 3] = np.array([sp_first.x, sp_first.y, sp_first.z])
+
+    start_poses_tf = transform_poses(start_poses, transformation_matrix)
+    start_poses_hover_tf = transform_poses(hover_poses, transformation_matrix)
+    end_poses_tf = translate_poses(start_poses_tf, tf_vector)
+    end_poses_hover_tf = translate_poses(start_poses_hover_tf, tf_vector)
+
+    # Plot the start and end points on the cylinder
+    #plot_strokes_3d(sp_first, stroke_vector, diameter_vector, convert_poses_to_points(start_poses_tf), convert_poses_to_points(start_poses_hover_tf), tf_vector, transformation_matrix, radius)
+
+    publish_poses(start_poses_tf, end_poses_tf, start_poses_hover_tf, end_poses_hover_tf)
+
+if __name__ == '__main__':
+    try:
+        main()
+    except rospy.ROSInterruptException:
+        pass
