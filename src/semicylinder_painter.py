@@ -147,9 +147,9 @@ def calculate_tool_strokes(radius, tool_width):
     
 #     return points
 
-def find_start_poses_on_semicircle(radius, num_strokes, tool_width):
+def find_poses_on_semicircle(radius, num_strokes, tool_width, hover):
     """
-    Find the start poses of each tool stroke on the inner surface of the half-cylinder (semicircle),
+    Find the start and hover poses of each tool stroke on the inner surface of the half-cylinder (semicircle),
     ensuring the first and last strokes are half the tool width away from the edges. Each pose includes
     both position (x, y, z) and orientation (quaternion) pointing outward from the center of the semicircle.
     
@@ -157,11 +157,15 @@ def find_start_poses_on_semicircle(radius, num_strokes, tool_width):
     radius (float): The radius of the semicircle.
     num_strokes (int): The number of equally spaced points (strokes).
     tool_width (float): The width of the tool.
+    hover (float): The hover distance.
     
     Returns:
-    list: A list of geometry_msgs/Pose objects representing each start pose.
+    tuple: A tuple containing two lists:
+        - list: A list of geometry_msgs/Pose objects representing each start pose.
+        - list: A list of geometry_msgs/Pose objects representing each hover pose.
     """
-    poses = []
+    start_poses = []
+    hover_poses = []
     
     # Angular range to cover (excluding half-tool widths on both sides)
     start_angle = tool_width / (2 * radius)
@@ -170,30 +174,46 @@ def find_start_poses_on_semicircle(radius, num_strokes, tool_width):
     # Calculate the angular step (divide the semicircle into num_strokes equal parts)
     angle_step = (end_angle - start_angle) / (num_strokes - 1)
     
-    # Calculate the position and orientation for each start pose
+    # Calculate the position and orientation for each pose
     for i in range(num_strokes):
         theta = start_angle + i * angle_step  # Angle for each point
-        x = radius * np.cos(theta) + radius
-        y = radius * np.sin(theta)
+        x_start = radius * np.cos(theta) + radius
+        y_start = radius * np.sin(theta)
+
+        x_hover = (radius - hover) * np.cos(theta) + radius
+        y_hover = (radius - hover) * np.sin(theta)
         
         # Orientation is outward, so we add pi/2 to theta
         orientation_angle = theta + np.pi / 2
         qx, qy, qz, qw = angle_to_quaternion(orientation_angle)
         
-        # Create Pose object
-        pose = Pose()
-        pose.position.x = x
-        pose.position.y = y
-        pose.position.z = 0  # 2D plane, so z is 0
+        # Create start Pose
+        start_pose = Pose()
+        start_pose.position.x = x_start
+        start_pose.position.y = y_start
+        start_pose.position.z = 0  # 2D plane, so z is 0
         
-        pose.orientation.x = qx
-        pose.orientation.y = qy
-        pose.orientation.z = qz
-        pose.orientation.w = qw
+        start_pose.orientation.x = qx
+        start_pose.orientation.y = qy
+        start_pose.orientation.z = qz
+        start_pose.orientation.w = qw
         
-        poses.append(pose)
+        start_poses.append(start_pose)
+
+        # Create hover Pose
+        hover_pose = Pose()
+        hover_pose.position.x = x_hover
+        hover_pose.position.y = y_hover
+        hover_pose.position.z = 0  # 2D plane, so z is 0
+        
+        hover_pose.orientation.x = qx
+        hover_pose.orientation.y = qy
+        hover_pose.orientation.z = qz
+        hover_pose.orientation.w = qw
+        
+        hover_poses.append(hover_pose)
     
-    return poses
+    return start_poses, hover_poses
 
 def transform_points(points, transformation_matrix):
     """
@@ -298,7 +318,7 @@ def transform_poses(poses, transformation_matrix):
 #     plt.ylabel("Y-axis")
 #     plt.show()
 
-def plot_strokes_3d(sp_first, stroke_vector, diameter_vector, start_points, end_points, transformation_matrix, radius):
+def plot_strokes_3d(sp_first, stroke_vector, diameter_vector, start_points, start_points_hover, tf_vector, transformation_matrix, radius):
     """
     Plot the start points of the tool strokes on a semicircle in 3D.
     
@@ -306,8 +326,9 @@ def plot_strokes_3d(sp_first, stroke_vector, diameter_vector, start_points, end_
     sp_first (np.array): Start point of the first stroke.
     stroke_vector (np.array): The stroke vector.
     diameter_vector (np.array): The diameter vector.
-    start_points_tf (list): List of 3D np.array stroke start points.
-    end_points_tf (list): List of 3D np.array stroke end points.
+    start_points (list): List of 3D np.array stroke start points.
+    start_points_hover (list): List of 3D np.array stroke start hover points.
+    tf_vector (np.array): Height vector of the semicylinder
     radius (float): The radius of the semicylinder.
     """
     # Prepare data
@@ -334,7 +355,7 @@ def plot_strokes_3d(sp_first, stroke_vector, diameter_vector, start_points, end_
 
     # Calculate 2 transformed semicircles
     semicircle_tf_1 = transform_points(semicircle, transformation_matrix)
-    semicircle_tf_2 = np.array(semicircle_tf_1) + vector_between_points(start_points[0], end_points[0])
+    semicircle_tf_2 = np.array(semicircle_tf_1) + tf_vector
 
     x_semi_1 = [p[0] for p in semicircle_tf_1]
     y_semi_1 = [p[1] for p in semicircle_tf_1]
@@ -355,12 +376,42 @@ def plot_strokes_3d(sp_first, stroke_vector, diameter_vector, start_points, end_
     ax.plot([sp_2[0], ep_2[0]], [sp_2[1], ep_2[1]], [sp_2[2], ep_2[2]], color='black')
 
     # Plot strokes
-    for start, end in zip(start_points, end_points):
-        ax.plot([start.x, end.x], [start.y, end.y], [start.z, end.z], color='green')
+    end_points = []
+    for start in start_points:
+        end_np = np.array([start.x + tf_vector[0], start.y + tf_vector[1], start.z + tf_vector[2]])
+        end = Point()
+        end.x = end_np[0]
+        end.y = end_np[1]
+        end.z = end_np[2]
+        end_points.append(end)
 
-    # Plot start and end points
+    for start, end in zip(start_points, end_points):
+        ax.plot([start.x, end.x], [start.y, end.y], [start.z, end.z], color='blue')
+
+    # Plot start points
     ax.plot(sp_x_vals, sp_y_vals, sp_z_vals, 'bo')  # Plot start points as blue dots
     ax.plot(sp_x_vals, sp_y_vals, sp_z_vals, 'r--')  # Connect points with a red dashed line
+
+    # Plot hover strokes
+    end_points_hover = []
+    for point in start_points_hover:
+        point_np = np.array([point.x, point.y, point.z])
+        end_point_hover_np = point_np + tf_vector
+        end_point_hover = Point()
+        end_point_hover.x = end_point_hover_np[0]
+        end_point_hover.y = end_point_hover_np[1]
+        end_point_hover.z = end_point_hover_np[2]
+
+        end_points_hover.append(end_point_hover)
+
+    for p1, p2 in zip(end_points_hover[1:], start_points_hover[:-1]):
+        ax.plot([p1.x, p2.x], [p1.y, p2.y], [p1.z, p2.z], color='green')
+
+    for p1, p2 in zip(end_points[1:], end_points_hover[1:]):
+        ax.plot([p1.x, p2.x], [p1.y, p2.y], [p1.z, p2.z], color='green')
+
+    for p1, p2 in zip(start_points[:-1], start_points_hover[:-1]):
+        ax.plot([p1.x, p2.x], [p1.y, p2.y], [p1.z, p2.z], color='green')
 
     # Set plot limits and labels
     ax.set_xlim([-5, 5])
@@ -424,7 +475,7 @@ if num_strokes < 2:
 
 # Find the start points of each stroke on the semicircle
 # start_points = find_start_points_on_semicircle(radius, num_strokes, tool_width)
-start_poses = find_start_poses_on_semicircle(radius, num_strokes, tool_width)
+start_poses, hover_poses = find_poses_on_semicircle(radius, num_strokes, tool_width, 0.5)
 
 # Calculate the transformed start and end points
 transformation_matrix = np.eye(4)
@@ -432,6 +483,9 @@ transformation_matrix[:3, :3] = np.column_stack((diameter_vector, depth_vector, 
 transformation_matrix[:3, 3] = np.array([sp_first.x, sp_first.y, sp_first.z])
 
 start_poses_tf = transform_poses(start_poses, transformation_matrix)
+start_poses_hover_tf = transform_poses(hover_poses, transformation_matrix)
 end_poses_tf = translate_poses(start_poses_tf, tf_vector)
+end_poses_hover_tf = translate_poses(start_poses_hover_tf, tf_vector)
+
 # Plot the start and end points on the cylinder
-plot_strokes_3d(sp_first, stroke_vector, diameter_vector, convert_poses_to_points(start_poses_tf), convert_poses_to_points(end_poses_tf), transformation_matrix, radius)
+plot_strokes_3d(sp_first, stroke_vector, diameter_vector, convert_poses_to_points(start_poses_tf), convert_poses_to_points(start_poses_hover_tf), tf_vector, transformation_matrix, radius)
