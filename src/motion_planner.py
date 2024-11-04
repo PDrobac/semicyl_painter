@@ -5,13 +5,12 @@ import copy
 import rospy
 import moveit_commander
 import moveit_msgs.msg
-import geometry_msgs.msg
+from geometry_msgs.msg import Pose
 from math import pi
 from tf.transformations import quaternion_from_euler
 
 class MotionPlanner(object):
     """MotionPlanner"""
-
     def __init__(self):
         super(MotionPlanner, self).__init__()
 
@@ -19,7 +18,7 @@ class MotionPlanner(object):
         ##
         ## First initialize `moveit_commander`_ and a `rospy`_ node:
         moveit_commander.roscpp_initialize(sys.argv)
-        rospy.init_node("move_group_python_interface_tutorial", anonymous=True)
+        #rospy.init_node("move_group_python_interface_tutorial", anonymous=True)
 
         ## Instantiate a `RobotCommander`_ object. Provides information such as the robot's
         ## kinematic model and the robot's current joint states
@@ -82,35 +81,19 @@ class MotionPlanner(object):
         self.eef_link = eef_link
         self.group_names = group_names
 
-    def go_to_pose_goal(self, pose_goal):
-        ## BEGIN_SUB_TUTORIAL plan_to_pose
-        ##
-        ## Planning to a Pose Goal
-        ## ^^^^^^^^^^^^^^^^^^^^^^^
-        ## We can plan a motion for this group to a desired pose for the
-        ## end-effector:
+        # Goal poses
+        self.start_poses = []
+        self.end_poses = []
+        self.start_hover_poses = []
+        self.end_hover_poses = []
 
-        self.move_group.set_pose_target(pose_goal)
-
-        ## Now, we call the planner to compute the plan and execute it.
-        # `go()` returns a boolean indicating whether the planning and execution was successful.
-        success = self.move_group.go(wait=True)
-        # Calling `stop()` ensures that there is no residual movement
-        self.move_group.stop()
-        # It is always good to clear your targets after planning with poses.
-        # Note: there is no equivalent function for clear_joint_value_targets().
-        self.move_group.clear_pose_targets()
-
-        ## END_SUB_TUTORIAL
-
-    def plan_cartesian_path(self, waypoints):
+    def go_to_pose_goal_cartesian(self, waypoints):
         ## BEGIN_SUB_TUTORIAL plan_cartesian_path
         ##
         ## Cartesian Paths
         ## ^^^^^^^^^^^^^^^
-        ## You can plan a Cartesian path directly by specifying a list of waypoints
-        ## for the end-effector to go through. If executing  interactively in a
-        ## Python shell, set scale = 1.0.
+        ## You can plan and execute a Cartesian path directly by specifying a list of waypoints
+        ## for the end-effector to go through.
 
         # We want the Cartesian path to be interpolated at a resolution of 1 cm
         # which is why we will specify 0.01 as the eef_step in Cartesian
@@ -121,61 +104,69 @@ class MotionPlanner(object):
             waypoints, 0.01  # waypoints to follow  # eef_step
         )
 
-        # Note: We are just planning, not asking move_group to actually move the robot yet:
-        return plan, fraction
-
-        ## END_SUB_TUTORIAL
-
-    def execute_plan(self, plan):
-        ## BEGIN_SUB_TUTORIAL execute_plan
-        ##
-        ## Executing a Plan
-        ## ^^^^^^^^^^^^^^^^
-        ## Use execute if you would like the robot to follow
-        ## the plan that has already been computed:
         self.move_group.execute(plan, wait=True)
 
-        ## **Note:** The robot's current joint state must be within some tolerance of the
-        ## first waypoint in the `RobotTrajectory`_ or ``execute()`` will fail
         ## END_SUB_TUTORIAL
 
-if __name__ == "__main__":
+    def go_to_pose_goal_dmp(self, goal_point):
+        # TODO: DMP
+
+        # TEMP solution
+        waypoints = []
+        waypoints.append(copy.deepcopy(goal_point))
+        self.go_to_pose_goal_cartesian(waypoints)
+
+def start_pose_callback(start_pose, planner):
+        planner.start_poses.append(start_pose)
+
+def end_pose_callback(end_pose, planner):
+        planner.end_poses.append(end_pose)
+
+def start_hover_pose_callback(start_hover_pose, planner):
+        planner.start_hover_poses.append(start_hover_pose)
+
+def end_hover_pose_callback(end_hover_pose, planner):
+        planner.end_hover_poses.append(end_hover_pose)
+
+def ready_callback (defalut_pose, planner):
+        input("============ Press `Enter` to initiate the motion planner")
+
+        # Go to first start point
+        waypoints = []
+        waypoints.append(copy.deepcopy(planner.start_hover_poses[0]))
+        waypoints.append(copy.deepcopy(planner.start_poses[0]))
+        planner.go_to_pose_goal_cartesian(waypoints)
+        
+        for i in range(len(planner.start_poses) - 1):
+            # Execute the tool stroke
+            planner.go_to_pose_goal_dmp(planner.end_poses[i])
+
+            # Go to next start point
+            waypoints = []
+            waypoints.append(copy.deepcopy(planner.end_hover_poses[i]))
+            waypoints.append(copy.deepcopy(planner.start_hover_poses[i+1]))
+            waypoints.append(copy.deepcopy(planner.start_poses[i+1]))
+            planner.go_to_pose_goal_cartesian(waypoints)
+
+        # Go to default pose
+        waypoints = []
+        waypoints.append(copy.deepcopy(defalut_pose))
+
+def main():
+    # Initialize the ROS node
+    rospy.init_node('motion_planner_node', anonymous=True)
+
     planner = MotionPlanner()
 
-    input("============ Press `Enter` to execute a movement using a pose goal ...")
-    pose_goal = geometry_msgs.msg.Pose()
-    #pose_goal.orientation.w = 1.0
-    pose_goal.position.x = 0.5
-    pose_goal.position.y = 0
-    pose_goal.position.z = 0
-    initial_orientation_q = quaternion_from_euler(pi, 0, pi/4)
-    pose_goal.orientation.x = initial_orientation_q[0]
-    pose_goal.orientation.y = initial_orientation_q[1]
-    pose_goal.orientation.z = initial_orientation_q[2]
-    pose_goal.orientation.w = initial_orientation_q[3]
-    planner.go_to_pose_goal(pose_goal)
+    # Initialize subscribers
+    start_sub = rospy.Subscriber('start_poses', Pose, start_pose_callback, planner)
+    end_sub = rospy.Subscriber('end_poses', Pose, end_pose_callback, planner)
+    start_hover_sub = rospy.Subscriber('start_hover_poses', Pose, start_hover_pose_callback, planner)
+    end_hover_sub = rospy.Subscriber('end_hover_poses', Pose, end_hover_pose_callback, planner)
+    default_sub = rospy.Subscriber('default_pose', Pose, ready_callback, planner)
 
-    # input("============ Press `Enter` to plan and display a Cartesian path ...")
-    # waypoints = []
+    # Keep the node running
+    rospy.spin()
 
-    # wpose = planner.move_group.get_current_pose().pose
-    # wpose.position.z -= 0.1  # First move up (z)
-    # wpose.position.y += 0.2  # and sideways (y)
-    # initial_orientation_q = quaternion_from_euler(0, 0, pi/4)
-    # wpose.orientation.x = initial_orientation_q[0]
-    # wpose.orientation.y = initial_orientation_q[1]
-    # wpose.orientation.z = initial_orientation_q[2]
-    # wpose.orientation.w = initial_orientation_q[3]
-    # waypoints.append(copy.deepcopy(wpose))
-
-    # wpose.position.x += 0.1  # Second move forward/backwards in (x)
-    # waypoints.append(copy.deepcopy(wpose))
-
-    # wpose.position.y -= 0.1  # Third move sideways (y)
-    # waypoints.append(copy.deepcopy(wpose))
-    # cartesian_plan, fraction = planner.plan_cartesian_path(waypoints)
-
-    # input("============ Press `Enter` to execute a saved path ...")
-    # planner.execute_plan(cartesian_plan)
-
-    print("============ Python tutorial demo complete!")
+if __name__ == "__main__":
+    main()

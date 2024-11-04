@@ -1,10 +1,12 @@
+#!/usr/bin/env python
+ 
 import math
 import numpy as np
 import matplotlib.pyplot as plt
 import tf.transformations as tft
 import rospy
 from std_msgs.msg import Header
-from geometry_msgs.msg import Pose, Point
+from geometry_msgs.msg import Pose, Point, Quaternion
 
 def string_to_point(point_string):
     # Split the string
@@ -115,6 +117,24 @@ def calculate_tool_strokes(radius, tool_width):
     num_strokes = math.ceil(effective_length / tool_width)
     return num_strokes
 
+def find_default_pose(point1, point2):
+    # Calculate the midpoint position
+    midpoint = Point(
+        x=(point1.x + point2.x) / 2,
+        y=(point1.y + point2.y) / 2,
+        z=(point1.z + point2.z) / 2
+    )
+
+    # Set default orientation (identity quaternion)
+    default_orientation = Quaternion(x=0, y=0, z=0, w=1)
+
+    # Create and return the Pose
+    pose = Pose()
+    pose.position = midpoint
+    pose.orientation = default_orientation
+
+    return pose
+
 # REDUNDANT
 # def find_start_points_on_semicircle(radius, num_strokes, tool_width):
 #     """
@@ -178,10 +198,10 @@ def find_poses_on_semicircle(radius, num_strokes, tool_width, hover):
     for i in range(num_strokes):
         theta = start_angle + i * angle_step  # Angle for each point
         x_start = radius * np.cos(theta) + radius
-        y_start = radius * np.sin(theta)
+        y_start = radius * -np.sin(theta)
 
         x_hover = (radius - hover) * np.cos(theta) + radius
-        y_hover = (radius - hover) * np.sin(theta)
+        y_hover = (radius - hover) * -np.sin(theta)
         
         # Orientation is outward, so we add pi/2 to theta
         orientation_angle = theta + np.pi / 2
@@ -349,7 +369,7 @@ def plot_strokes_3d(sp_first, stroke_vector, diameter_vector, start_points, star
     # Calculate semicircle points
     theta = np.linspace(0, np.pi, 100)  # Angle from 0 to pi for a semicircle
     x_semi = radius * np.cos(theta) + radius  # x = r * cos(theta)
-    y_semi = radius * np.sin(theta)  # y = r * sin(theta)
+    y_semi = radius * -np.sin(theta)  # y = r * sin(theta)
     z_semi = np.zeros_like(theta)  # z = 0
     semicircle = [np.array([x, y, z]) for x, y, z in zip(x_semi, y_semi, z_semi)]
 
@@ -446,6 +466,7 @@ def publish_poses(start_poses, end_poses, start_hover_poses, end_hover_poses):
     end_pub = rospy.Publisher('end_poses', Pose, queue_size=100)
     start_hover_pub = rospy.Publisher('start_hover_poses', Pose, queue_size=100)
     end_hover_pub = rospy.Publisher('end_hover_poses', Pose, queue_size=100)
+    default_pub = rospy.Publisher('default_pose', Pose, queue_size=10)
 
     rospy.sleep(1)
 
@@ -468,6 +489,11 @@ def publish_poses(start_poses, end_poses, start_hover_poses, end_hover_poses):
     for pose in end_hover_poses:
         end_hover_pub.publish(pose)
         rospy.loginfo(f"Published End Hover Pose: {pose}")
+
+    default_pose = find_default_pose(start_poses[0].position, start_poses[-1].position)
+
+    default_pub.publish(default_pose)
+    rospy.loginfo(f"All poses published!")
 
 def main():
     # Input from the user
@@ -517,7 +543,7 @@ def main():
 
     # Find the start points of each stroke on the semicircle
     # start_points = find_start_points_on_semicircle(radius, num_strokes, tool_width)
-    start_poses, hover_poses = find_poses_on_semicircle(radius, num_strokes, tool_width, 0.5)
+    start_poses, hover_poses = find_poses_on_semicircle(radius, num_strokes, tool_width, 0.1)
 
     # Calculate the transformed start and end points
     transformation_matrix = np.eye(4)
@@ -530,7 +556,7 @@ def main():
     end_poses_hover_tf = translate_poses(start_poses_hover_tf, tf_vector)
 
     # Plot the start and end points on the cylinder
-    #plot_strokes_3d(sp_first, stroke_vector, diameter_vector, convert_poses_to_points(start_poses_tf), convert_poses_to_points(start_poses_hover_tf), tf_vector, transformation_matrix, radius)
+    plot_strokes_3d(sp_first, stroke_vector, diameter_vector, convert_poses_to_points(start_poses_tf), convert_poses_to_points(start_poses_hover_tf), tf_vector, transformation_matrix, radius)
 
     publish_poses(start_poses_tf, end_poses_tf, start_poses_hover_tf, end_poses_hover_tf)
 
