@@ -198,10 +198,10 @@ def find_poses_on_semicircle(radius, num_strokes, tool_width, hover):
     for i in range(num_strokes):
         theta = start_angle + i * angle_step  # Angle for each point
         x_start = radius * np.cos(theta) + radius
-        y_start = radius * np.sin(theta)
+        y_start = radius * -np.sin(theta)
 
         x_hover = (radius - hover) * np.cos(theta) + radius
-        y_hover = (radius - hover) * np.sin(theta)
+        y_hover = (radius - hover) * -np.sin(theta)
         
         # Orientation is outward, so we add pi/2 to theta
         orientation_angle = theta + np.pi / 2
@@ -369,7 +369,7 @@ def plot_strokes_3d(sp_first, stroke_vector, diameter_vector, start_points, star
     # Calculate semicircle points
     theta = np.linspace(0, np.pi, 100)  # Angle from 0 to pi for a semicircle
     x_semi = radius * np.cos(theta) + radius  # x = r * cos(theta)
-    y_semi = radius * np.sin(theta)  # y = r * sin(theta)
+    y_semi = radius * -np.sin(theta)  # y = r * sin(theta)
     z_semi = np.zeros_like(theta)  # z = 0
     semicircle = [np.array([x, y, z]) for x, y, z in zip(x_semi, y_semi, z_semi)]
 
