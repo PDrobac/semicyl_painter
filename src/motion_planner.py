@@ -6,8 +6,6 @@ import rospy
 import moveit_commander
 import moveit_msgs.msg
 from geometry_msgs.msg import Pose
-from math import pi
-from tf.transformations import quaternion_from_euler
 
 class MotionPlanner(object):
     """MotionPlanner"""

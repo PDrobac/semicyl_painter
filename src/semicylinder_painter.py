@@ -5,7 +5,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import tf.transformations as tft
 import rospy
-from std_msgs.msg import Header
 from geometry_msgs.msg import Pose, Point, Quaternion
 
 def string_to_point(point_string):
