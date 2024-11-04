@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import sys
 import copy
@@ -6,6 +6,7 @@ import rospy
 import moveit_commander
 import moveit_msgs.msg
 from geometry_msgs.msg import Pose
+from std_msgs.msg import String
 
 class MotionPlanner(object):
     """MotionPlanner"""
@@ -52,21 +53,21 @@ class MotionPlanner(object):
         ## ^^^^^^^^^^^^^^^^^^^^^^^^^
         # We can get the name of the reference frame for this robot:
         planning_frame = move_group.get_planning_frame()
-        print("============ Planning frame: %s" % planning_frame)
+        # print("============ Planning frame: %s" % planning_frame)
 
         # We can also print the name of the end-effector link for this group:
         eef_link = move_group.get_end_effector_link()
-        print("============ End effector link: %s" % eef_link)
+        # print("============ End effector link: %s" % eef_link)
 
         # We can get a list of all the groups in the robot:
         group_names = robot.get_group_names()
-        print("============ Available Planning Groups:", robot.get_group_names())
+        # print("============ Available Planning Groups:", robot.get_group_names())
 
         # Sometimes for debugging it is useful to print the entire state of the
         # robot:
-        print("============ Printing robot state")
-        print(robot.get_current_state())
-        print("")
+        # print("============ Printing robot state")
+        # print(robot.get_current_state())
+        # print("")
         ## END_SUB_TUTORIAL
 
         # Misc variables
@@ -162,6 +163,11 @@ def main():
     start_hover_sub = rospy.Subscriber('start_hover_poses', Pose, start_hover_pose_callback, planner)
     end_hover_sub = rospy.Subscriber('end_hover_poses', Pose, end_hover_pose_callback, planner)
     default_sub = rospy.Subscriber('default_pose', Pose, ready_callback, planner)
+
+    # ready_pub = rospy.Publisher('ready_pose', String, queue_size=10)
+    # ready_pub.publish('msg')
+
+    # print("Published ready flag!")
 
     # Keep the node running
     rospy.spin()

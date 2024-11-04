@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
  
 import math
 import numpy as np
@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import tf.transformations as tft
 import rospy
 from geometry_msgs.msg import Pose, Point, Quaternion
+from std_msgs.msg import String
 
 def string_to_point(point_string):
     # Split the string
@@ -289,11 +290,11 @@ def transform_poses(poses, transformation_matrix):
         rotation_matrix = tft.quaternion_matrix(orientation)[:3, :3]
         
         # Transform position using the transformation matrix
-        transformed_position = transformation_matrix @ position
+        transformed_position = np.dot(transformation_matrix, position)
         
         # Apply the transformation to the rotation
         transformed_rotation_matrix = np.eye(4)
-        transformed_rotation_matrix[:3, :3] = transformation_matrix[:3, :3] @ rotation_matrix
+        transformed_rotation_matrix[:3, :3] = np.dot(transformation_matrix[:3, :3], rotation_matrix)
         
         # Convert the transformed rotation matrix back to quaternion
         transformed_orientation = tft.quaternion_from_matrix(transformed_rotation_matrix)
@@ -472,37 +473,49 @@ def publish_poses(start_poses, end_poses, start_hover_poses, end_hover_poses):
     # Publish start poses
     for pose in start_poses:
         start_pub.publish(pose)
-        rospy.loginfo(f"Published Start Pose: {pose}")
+        #rospy.loginfo(f"Published Start Pose: {pose}")
 
     # Publish end poses
     for pose in end_poses:
         end_pub.publish(pose)
-        rospy.loginfo(f"Published End Pose: {pose}")
+        #rospy.loginfo(f"Published End Pose: {pose}")
 
     # Publish start hover poses
     for pose in start_hover_poses:
         start_hover_pub.publish(pose)
-        rospy.loginfo(f"Published Start Hover Pose: {pose}")
+        #rospy.loginfo(f"Published Start Hover Pose: {pose}")
 
     # Publish end hover poses
     for pose in end_hover_poses:
         end_hover_pub.publish(pose)
-        rospy.loginfo(f"Published End Hover Pose: {pose}")
+        #rospy.loginfo(f"Published End Hover Pose: {pose}")
 
     default_pose = find_default_pose(start_poses[0].position, start_poses[-1].position)
 
     default_pub.publish(default_pose)
-    rospy.loginfo(f"All poses published!")
+    #rospy.loginfo(f"All poses published!")
 
 def main():
-    # Input from the user
-    tool_width = float(input("Enter the width of the tooltip: "))
-    overlap = float(input("Enter the minimum allowed overlap between strokes: "))
+    # Initialize the ROS node
+    rospy.init_node('pose_publisher_node', anonymous=True)
 
-    sp_first_str = input("Enter the coordinates of the first start point separated by spaces: ")
-    ep_first_str = input("Enter the coordinates of the first end point separated by spaces: ")
-    sp_last_str = input("Enter the coordinates of the last start point separated by spaces: ")
-    #ep_last_str = input("Enter the coordinates of the last end point separated by spaces: ")
+    rospy.sleep(5)
+
+    # Input from the user
+    # tool_width = float(input("Enter the width of the tooltip: "))
+    # overlap = float(input("Enter the minimum allowed overlap between strokes: "))
+
+    # sp_first_str = input("Enter the coordinates of the first start point separated by spaces: ")
+    # ep_first_str = input("Enter the coordinates of the first end point separated by spaces: ")
+    # sp_last_str = input("Enter the coordinates of the last start point separated by spaces: ")
+
+    # Input from ros launch file
+    tool_width = rospy.get_param("~tool_width", 0.05)  # Default value is 0.05
+    overlap = rospy.get_param("~tool_overlap", 0.0)  # Default value is 0.0
+
+    sp_first_str = rospy.get_param("~sp_first", "0.2 0.0 0.0")  # Default is "0.2 0.0 0.0"
+    ep_first_str = rospy.get_param("~ep_first", "0.7 0.0 0.0")  # Default is "0.7 0.0 0.0"
+    sp_last_str = rospy.get_param("~sp_last", "0.2 -0.5 0.0")  # Default is "0.2 -0.5 0.0"
 
     # Truncate tool width to include overlap
     tool_width -= overlap
@@ -558,6 +571,17 @@ def main():
     plot_strokes_3d(sp_first, stroke_vector, diameter_vector, convert_poses_to_points(start_poses_tf), convert_poses_to_points(start_poses_hover_tf), tf_vector, transformation_matrix, radius)
 
     publish_poses(start_poses_tf, end_poses_tf, start_poses_hover_tf, end_poses_hover_tf)
+
+# def init():
+#     # Initialize the ROS node
+#     rospy.init_node('pose_publisher_node', anonymous=True)
+
+#     ready_sub = rospy.Subscriber('ready_pose', String, ready_callback)
+
+#     print("Waiting for poses...")
+
+#     # Keep the node running
+#     rospy.spin()
 
 if __name__ == '__main__':
     try:

@@ -1,0 +1,16 @@
+<launch>
+    <!-- Launch the motion_planner node -->
+    <node pkg="semicyl_painter" type="motion_planner.py" name="motion_planner_node" output="screen">
+    </node>
+
+    <!-- Launch the pose_finder node -->
+    <node pkg="semicyl_painter" type="pose_finder.py" name="pose_publisher_node" output="screen">
+        <!-- Set node-specific parameters -->
+        <param name="tool_width" value="0.05" />
+        <param name="tool_overlap" value="0.0" />
+
+        <param name="sp_first" value="0.2 0.0 0.0" />
+        <param name="ep_first" value="0.7 0.0 0.0" />
+        <param name="sp_last" value="0.2 -0.5 0.0" />
+    </node>
+</launch>
