@@ -24,9 +24,22 @@ class PoseToPointCloud2Node:
 
         # Variable to track the last message time
         self.last_received_time = rospy.Time.now()
+        self.timeout_flag = False
 
         # Start a timer to check if no messages are received within 1 second
         rospy.Timer(rospy.Duration(1), self.timer_callback)
+
+    def point_exists(self, point):
+        # Check if a point with the same coordinates exists in the list
+        return any(p[0] == point[0] and p[1] == point[1] and p[2] == point[2] for p in self.points)
+
+    def points_to_txt(self, output_file):
+        # Open the file in write mode
+        with open(output_file, 'w') as file:
+            for point in self.points:
+                # Write each point's coordinates to the file
+                file.write(f"{point}\n")
+        rospy.loginfo(f"Exported Points to {output_file}")
 
     def pose_callback(self, pose_msg):
         # Convert the Pose to a PointCloud2-compatible point
@@ -37,7 +50,8 @@ class PoseToPointCloud2Node:
         ]
 
         # Add this point to the list of points
-        self.points.append(point)
+        if not self.point_exists(point):
+            self.points.append(point)
 
         # Update the last received time
         self.last_received_time = rospy.Time.now()
@@ -60,10 +74,16 @@ class PoseToPointCloud2Node:
         # Publish the PointCloud2 message
         self.pointcloud_pub.publish(pointcloud_msg)
 
+        self.timeout_flag = False
+
     def timer_callback(self, event):
         # Check if more than 5 seconds has passed since the last message
-        if (rospy.Time.now() - self.last_received_time).to_sec() > 5.0:
-            rospy.loginfo("No message received in the last second, clearing point cloud.")
+        if (rospy.Time.now() - self.last_received_time).to_sec() > 5.0 and not self.timeout_flag:
+            rospy.loginfo("No message received in the last second, exporting and clearing point cloud.")
+            # Export the point cloud
+            output_file = "temp/points_data.txt"
+            self.points_to_txt(output_file)
+
             # Publish an empty PointCloud2 message to clear the point cloud
             empty_cloud = PointCloud2()
             empty_cloud.header = std_msgs.msg.Header()
@@ -72,6 +92,8 @@ class PoseToPointCloud2Node:
             self.pointcloud_pub.publish(empty_cloud)
             # Clear the points list
             self.points = []
+
+            self.timeout_flag = True
 
 if __name__ == "__main__":
     try:
