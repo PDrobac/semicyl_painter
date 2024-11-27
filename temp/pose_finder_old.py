@@ -235,37 +235,6 @@ def find_poses_on_semicircle(radius, num_strokes, tool_width, hover):
     
     return start_poses, hover_poses
 
-def vector_from_projection_to_point(point1, direction_vector, point2):
-    """
-    Calculate the vector from the projection of point2 on the line defined by point1 and direction_vector to point2.
-    
-    Parameters:
-    point1 (Point): A ROS Point object on the line.
-    direction_vector (tuple): The direction vector of the line as (a, b, c).
-    point2 (Point): A ROS Point object for the point we want to project.
-    
-    Returns:
-    Point: A ROS Point object representing the vector from the projection of point2 to point2.
-    """
-    # Convert point1 and point2 to numpy arrays for easier calculation
-    p1 = np.array([point1.x, point1.y, point1.z])
-    p2 = np.array([point2.x, point2.y, point2.z])
-    v = np.array(direction_vector)
-    
-    # Calculate the vector from p1 to p2
-    w = p2 - p1
-    
-    # Project w onto v
-    proj_w_on_v = (np.dot(w, v) / np.dot(v, v)) * v
-    
-    # Calculate the projection point on the line
-    p_proj = p1 + proj_w_on_v
-    
-    # Calculate the vector from the projection point to point2
-    vector_projection_to_point = p2 - p_proj
-    
-    return vector_projection_to_point
-
 def transform_points(points, transformation_matrix):
     """
     Transform a list of 3D np.array points using a transformation matrix
@@ -344,27 +313,6 @@ def transform_poses(poses, transformation_matrix):
 
     return transformed_poses
 
-def swap_every_second_element(list1, list2):
-    """
-    Swap every second element between two lists.
-    
-    Parameters:
-    list1 (list): The first list of poses.
-    list2 (list): The second list of poses.
-    
-    Returns:
-    tuple: The modified list1 and list2 after swapping every second element.
-    """
-    # Ensure both lists are of equal length
-    if len(list1) != len(list2):
-        raise ValueError("Both lists must be of the same length.")
-    
-    # Swap every second element (start from index 1 to get every second element)
-    for i in range(1, len(list1), 2):
-        list1[i], list2[i] = list2[i], list1[i]
-    
-    return list1, list2
-
 # REDUNDANT
 # def plot_semicircle(radius, start_points):
 #     """
@@ -390,21 +338,18 @@ def swap_every_second_element(list1, list2):
 #     plt.ylabel("Y-axis")
 #     plt.show()
 
-def plot_strokes_3d(sp_first, forward_vector, diameter_vector, start_points, end_points, start_points_hover, end_points_hover, tf_vector, transformation_matrix, start_radius, end_radius):
+def plot_strokes_3d(sp_first, stroke_vector, diameter_vector, start_points, start_points_hover, tf_vector, transformation_matrix, radius):
     """
-    Plot the start points of the tool strokes on a semicylinder in 3D.
+    Plot the start points of the tool strokes on a semicircle in 3D.
     
     Parameters:
     sp_first (np.array): Start point of the first stroke.
-    forward_vector (np.array): The stroke vector.
+    stroke_vector (np.array): The stroke vector.
     diameter_vector (np.array): The diameter vector.
     start_points (list): List of 3D np.array stroke start points.
-    end_points (list): List of 3D np.array stroke end points.
     start_points_hover (list): List of 3D np.array stroke start hover points.
-    end_points_hover (list): List of 3D np.array stroke end hover points.
-    tf_vector (np.array): Height vector of the semicylinder.
-    start_radius (float): The start radius of the semicylinder.
-    end_radius (float): The end radius of the semicylinder.
+    tf_vector (np.array): Height vector of the semicylinder
+    radius (float): The radius of the semicylinder.
     """
     # Prepare data
     sp_x_vals = [p.x for p in start_points]
@@ -416,28 +361,21 @@ def plot_strokes_3d(sp_first, forward_vector, diameter_vector, start_points, end
     ax = fig.add_subplot(111, projection='3d')
 
     # Plot stroke vector
-    ax.quiver(sp_first.x, sp_first.y, sp_first.z, forward_vector[0], forward_vector[1], forward_vector[2], color='blue', label='Stroke vector')
+    ax.quiver(sp_first.x, sp_first.y, sp_first.z, stroke_vector[0], stroke_vector[1], stroke_vector[2], color='blue', label='Stroke vector')
 
     # Plot diameter vector
     ax.quiver(sp_first.x, sp_first.y, sp_first.z, diameter_vector[0], diameter_vector[1], diameter_vector[2], color='red', label='Diameter vector')
 
-    # Calculate start semicircle points
+    # Calculate semicircle points
     theta = np.linspace(0, np.pi, 100)  # Angle from 0 to pi for a semicircle
-    x_semi = start_radius * np.cos(theta) + start_radius  # x = r * cos(theta)
-    y_semi = start_radius * np.sin(theta)  # y = r * sin(theta)
+    x_semi = radius * np.cos(theta) + radius  # x = r * cos(theta)
+    y_semi = radius * np.sin(theta)  # y = r * sin(theta)
     z_semi = np.zeros_like(theta)  # z = 0
-    start_semicircle = [np.array([x, y, z]) for x, y, z in zip(x_semi, y_semi, z_semi)]
-
-    # Calculate end semicircle points
-    x_semi = end_radius * np.cos(theta) + end_radius  # x = r * cos(theta)
-    y_semi = end_radius * np.sin(theta)  # y = r * sin(theta)
-    z_semi = np.zeros_like(theta)  # z = 0
-    end_semicircle = [np.array([x, y, z]) for x, y, z in zip(x_semi, y_semi, z_semi)]
+    semicircle = [np.array([x, y, z]) for x, y, z in zip(x_semi, y_semi, z_semi)]
 
     # Calculate 2 transformed semicircles
-    semicircle_tf_1 = transform_points(start_semicircle, transformation_matrix)
-    semicircle_tf = transform_points(end_semicircle, transformation_matrix)
-    semicircle_tf_2 = np.array(semicircle_tf) + tf_vector
+    semicircle_tf_1 = transform_points(semicircle, transformation_matrix)
+    semicircle_tf_2 = np.array(semicircle_tf_1) + tf_vector
 
     x_semi_1 = [p[0] for p in semicircle_tf_1]
     y_semi_1 = [p[1] for p in semicircle_tf_1]
@@ -458,6 +396,15 @@ def plot_strokes_3d(sp_first, forward_vector, diameter_vector, start_points, end
     ax.plot([sp_2[0], ep_2[0]], [sp_2[1], ep_2[1]], [sp_2[2], ep_2[2]], color='black')
 
     # Plot strokes
+    end_points = []
+    for start in start_points:
+        end_np = np.array([start.x + tf_vector[0], start.y + tf_vector[1], start.z + tf_vector[2]])
+        end = Point()
+        end.x = end_np[0]
+        end.y = end_np[1]
+        end.z = end_np[2]
+        end_points.append(end)
+
     for start, end in zip(start_points, end_points):
         ax.plot([start.x, end.x], [start.y, end.y], [start.z, end.z], color='blue')
 
@@ -466,15 +413,24 @@ def plot_strokes_3d(sp_first, forward_vector, diameter_vector, start_points, end
     ax.plot(sp_x_vals, sp_y_vals, sp_z_vals, 'r--')  # Connect points with a red dashed line
 
     # Plot hover strokes
+    end_points_hover = []
+    for point in start_points_hover:
+        point_np = np.array([point.x, point.y, point.z])
+        end_point_hover_np = point_np + tf_vector
+        end_point_hover = Point()
+        end_point_hover.x = end_point_hover_np[0]
+        end_point_hover.y = end_point_hover_np[1]
+        end_point_hover.z = end_point_hover_np[2]
+
+        end_points_hover.append(end_point_hover)
+
+    for p1, p2 in zip(end_points_hover[1:], start_points_hover[:-1]):
+        ax.plot([p1.x, p2.x], [p1.y, p2.y], [p1.z, p2.z], color='green')
+
     for p1, p2 in zip(end_points[1:], end_points_hover[1:]):
         ax.plot([p1.x, p2.x], [p1.y, p2.y], [p1.z, p2.z], color='green')
 
     for p1, p2 in zip(start_points[:-1], start_points_hover[:-1]):
-        ax.plot([p1.x, p2.x], [p1.y, p2.y], [p1.z, p2.z], color='green')
-
-    swap_every_second_element(start_points_hover, end_points_hover)
-    
-    for p1, p2 in zip(end_points_hover[1:], start_points_hover[:-1]):
         ax.plot([p1.x, p2.x], [p1.y, p2.y], [p1.z, p2.z], color='green')
 
     # Set plot limits and labels
@@ -513,9 +469,6 @@ def publish_poses(start_poses, end_poses, start_hover_poses, end_hover_poses):
     default_pub = rospy.Publisher('default_pose', Pose, queue_size=10)
 
     rospy.sleep(1)
-
-    swap_every_second_element(start_poses, end_poses)
-    swap_every_second_element(start_hover_poses, end_hover_poses)
 
     # Publish start poses
     for pose in start_poses:
@@ -561,7 +514,7 @@ def main():
     overlap = rospy.get_param("~tool_overlap", 0.0)  # Default value is 0.0
 
     sp_first_str = rospy.get_param("~sp_first", "0.2 0.0 0.0")  # Default is "0.2 0.0 0.0"
-    ep_first_str = rospy.get_param("~ep_first", "0.7 -0.1 0.0")  # Default is "0.7 0.0 0.0"
+    ep_first_str = rospy.get_param("~ep_first", "0.7 0.0 0.0")  # Default is "0.7 0.0 0.0"
     sp_last_str = rospy.get_param("~sp_last", "0.2 -0.5 0.0")  # Default is "0.2 -0.5 0.0"
 
     # Truncate tool width to include overlap
@@ -575,7 +528,7 @@ def main():
     sp_last = string_to_point(sp_last_str)
 
     # Calculate the diameter vector from sp_first to sp_last
-    diameter_vector = vector_between_points(sp_first, sp_last)
+    diameter_vector = vector_between_points(sp_first, sp_last) # This is our x-axis
     diameter = np.linalg.norm(diameter_vector)
     if diameter == 0:
         raise ValueError("Diameter cannot be zero.")
@@ -589,48 +542,46 @@ def main():
     depth_vector /= depth  # This is our y-axis
 
     # Calculate the stroke direction vector
-    forward_vector = np.cross(diameter_vector, depth_vector)# This is our z-axis
+    stroke_vector = np.cross(diameter_vector, depth_vector)# This is our z-axis
+    tf_vector = np.linalg.norm(vector_between_points(sp_first, ep_first)) * stroke_vector
 
-    # Calculate cylinder radius, side offset, second radius and tf_vector
-    start_radius = diameter / 2
-    offset_vector = vector_from_projection_to_point(sp_first, forward_vector, ep_first)
-    end_radius = start_radius - np.linalg.norm(offset_vector)
-    tf_vector = vector_from_projection_to_point(sp_first, diameter_vector, ep_first) + offset_vector
+    # Calculate cylinder radius
+    radius = diameter / 2
 
     # Calculate the number of tool strokes
-    num_strokes = calculate_tool_strokes(start_radius, tool_width)
+    num_strokes = calculate_tool_strokes(radius, tool_width)
     if num_strokes < 2:
         raise ValueError("Number of strokes must be at least 2 (tool width too big).")
 
     # Find the start points of each stroke on the semicircle
     # start_points = find_start_points_on_semicircle(radius, num_strokes, tool_width)
-    start_poses, start_hover_poses = find_poses_on_semicircle(start_radius, num_strokes, tool_width, 0.05)
-
-    # Find the end points of each stroke on the semicircle
-    end_poses, end_hover_poses = find_poses_on_semicircle(end_radius, num_strokes, tool_width, 0.05)
+    start_poses, hover_poses = find_poses_on_semicircle(radius, num_strokes, tool_width, 0.1)
 
     # Calculate the transformed start and end points
     transformation_matrix = np.eye(4)
-    transformation_matrix[:3, :3] = np.column_stack((diameter_vector, depth_vector, forward_vector))
+    transformation_matrix[:3, :3] = np.column_stack((diameter_vector, depth_vector, stroke_vector))
     transformation_matrix[:3, 3] = np.array([sp_first.x, sp_first.y, sp_first.z])
 
     start_poses_tf = transform_poses(start_poses, transformation_matrix)
-    start_poses_hover_tf = transform_poses(start_hover_poses, transformation_matrix)
-
-    end_poses_temp = transform_poses(end_poses, transformation_matrix)
-    end_poses_hover_temp = transform_poses(end_hover_poses, transformation_matrix)
-
-    end_poses_tf = translate_poses(end_poses_temp, tf_vector)
-    end_poses_hover_tf = translate_poses(end_poses_hover_temp, tf_vector)
+    start_poses_hover_tf = transform_poses(hover_poses, transformation_matrix)
+    end_poses_tf = translate_poses(start_poses_tf, tf_vector)
+    end_poses_hover_tf = translate_poses(start_poses_hover_tf, tf_vector)
 
     # Plot the start and end points on the cylinder
-    plot_strokes_3d(
-        sp_first, forward_vector, diameter_vector,
-        convert_poses_to_points(start_poses_tf), convert_poses_to_points(end_poses_tf),
-        convert_poses_to_points(start_poses_hover_tf), convert_poses_to_points(end_poses_hover_tf),
-        tf_vector, transformation_matrix, start_radius, end_radius)
+    plot_strokes_3d(sp_first, stroke_vector, diameter_vector, convert_poses_to_points(start_poses_tf), convert_poses_to_points(start_poses_hover_tf), tf_vector, transformation_matrix, radius)
 
     publish_poses(start_poses_tf, end_poses_tf, start_poses_hover_tf, end_poses_hover_tf)
+
+# def init():
+#     # Initialize the ROS node
+#     rospy.init_node('pose_publisher_node', anonymous=True)
+
+#     ready_sub = rospy.Subscriber('ready_pose', String, ready_callback)
+
+#     print("Waiting for poses...")
+
+#     # Keep the node running
+#     rospy.spin()
 
 if __name__ == '__main__':
     try:
