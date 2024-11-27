@@ -30,7 +30,7 @@ def publish_pointcloud(last_msg, output_topic):
         pub.publish(last_msg)
         
         # Allow some time to publish
-        rospy.sleep(1)
+        rospy.spin()
     else:
         rospy.logwarn("No PointCloud2 message found to publish")
 
