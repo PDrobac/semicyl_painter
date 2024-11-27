@@ -1,6 +1,8 @@
 import rospy
 import rosbag
+import sensor_msgs.point_cloud2 as pc2
 from sensor_msgs.msg import PointCloud2
+import csv
 
 def get_last_pointcloud_from_bag(bag_file_path, topic_name):
     last_message = None
@@ -14,37 +16,43 @@ def get_last_pointcloud_from_bag(bag_file_path, topic_name):
     
     return last_message, last_time
 
-def publish_pointcloud(last_msg, output_topic):
-    # Initialize ROS node
-    rospy.init_node('mould_publisher', anonymous=True)
+def save_pointcloud_to_csv(pointcloud_msg, csv_file_path):
+    """
+    Converts a PointCloud2 message to CSV format and saves it.
+
+    Args:
+        pointcloud_msg (PointCloud2): The PointCloud2 message.
+        csv_file_path (str): The path to the CSV file.
+    """
+    if pointcloud_msg is None:
+        rospy.logwarn("No PointCloud2 message found to save.")
+        return
     
-    # Create a publisher for the PointCloud2 message
-    pub = rospy.Publisher(output_topic, PointCloud2, queue_size=10)
+    # Parse the point cloud data
+    points = pc2.read_points(pointcloud_msg, skip_nans=True, field_names=("x", "y", "z"))
     
-    # Check if last_msg exists
-    if last_msg is not None:
-        rospy.loginfo(f"Publishing last PointCloud2 message from topic '{output_topic}'")
+    # Write points to CSV
+    with open(csv_file_path, mode='w', newline='') as csv_file:
+        writer = csv.writer(csv_file)
+        # writer.writerow(["x", "y", "z"])  # Write header
         
-        rospy.sleep(1)
-        # Publish the message
-        pub.publish(last_msg)
-        
-        # Allow some time to publish
-        rospy.spin()
-    else:
-        rospy.logwarn("No PointCloud2 message found to publish")
+        rospy.loginfo(f"Saving PointCloud2 data to '{csv_file_path}'...")
+        for point in points:
+            writer.writerow(point[:3])  # Only save x, y, z coordinates
+    
+    rospy.loginfo(f"PointCloud2 data saved to '{csv_file_path}'.")
 
 if __name__ == "__main__":
     # Define bag file path and topic names
     bag_file_path = '/home/pero/Pero - diplomski/OMCO_0705_brusenje/obradjeni_bag/umjeravanje_2.bag'
     input_topic = '/localize_mould/transformed_cloud_pcl'
-    output_topic = '/mould'
+    csv_file_path = 'data/mould.csv'  # Path to save the CSV
     
     # Retrieve the last message
     last_msg, last_msg_time = get_last_pointcloud_from_bag(bag_file_path, input_topic)
     
-    # Publish the last message
+    # Save the last message to CSV
     if last_msg:
-        publish_pointcloud(last_msg, output_topic)
+        save_pointcloud_to_csv(last_msg, csv_file_path)
     else:
         rospy.logwarn("No message found on the specified topic in the bag file.")
