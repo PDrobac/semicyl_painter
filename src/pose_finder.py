@@ -557,12 +557,12 @@ def main():
     # sp_last_str = input("Enter the coordinates of the last start point separated by spaces: ")
 
     # Input from ros launch file
-    tool_width = rospy.get_param("~tool_width", 0.05)  # Default value is 0.05
+    tool_width = rospy.get_param("~tool_width", 0.005)  # Default value is 0.05
     overlap = rospy.get_param("~tool_overlap", 0.0)  # Default value is 0.0
 
     sp_first_str = rospy.get_param("~sp_first", "0.2 0.0 0.0")  # Default is "0.2 0.0 0.0"
-    ep_first_str = rospy.get_param("~ep_first", "0.7 -0.1 0.0")  # Default is "0.7 0.0 0.0"
-    sp_last_str = rospy.get_param("~sp_last", "0.2 -0.5 0.0")  # Default is "0.2 -0.5 0.0"
+    ep_first_str = rospy.get_param("~ep_first", "0.37 -0.01875 0.0")  # Default is "0.7 0.0 0.0"
+    sp_last_str = rospy.get_param("~sp_last", "0.2 -0.063 0.0")  # Default is "0.2 -0.5 0.0"
 
     # Truncate tool width to include overlap
     tool_width -= overlap
@@ -604,10 +604,10 @@ def main():
 
     # Find the start points of each stroke on the semicircle
     # start_points = find_start_points_on_semicircle(radius, num_strokes, tool_width)
-    start_poses, start_hover_poses = find_poses_on_semicircle(start_radius, num_strokes, tool_width, 0.05)
+    start_poses, start_hover_poses = find_poses_on_semicircle(start_radius, num_strokes, tool_width, tool_width)
 
     # Find the end points of each stroke on the semicircle
-    end_poses, end_hover_poses = find_poses_on_semicircle(end_radius, num_strokes, tool_width, 0.05)
+    end_poses, end_hover_poses = find_poses_on_semicircle(end_radius, num_strokes, tool_width, tool_width)
 
     # Calculate the transformed start and end points
     transformation_matrix = np.eye(4)

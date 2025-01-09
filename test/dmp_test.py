@@ -2,6 +2,7 @@
 import math
 import roslib
 import copy
+import csv
 roslib.load_manifest('dmp')
 import rospy
 import numpy as np
@@ -125,7 +126,7 @@ def plot_dmp_3d(traj, dmp, goal):
     ax.set_zlabel("Z-axis")
     ax.legend()
     
-    plt.show()
+    # plt.show()
 
 def plot_new_2d(traj, pos):
     dt = 0.1
@@ -540,7 +541,7 @@ def dmp_bmaric():
     num_bases = 4
     traj = []
     # Read the file and process each line
-    with open("semicyl_painter/temp/bmaric.csv", "r") as file:
+    with open("data/bmaric.csv", "r") as file:
         for line in file:
             # Remove any whitespace or newline characters
             line = line.strip()
@@ -600,6 +601,56 @@ def dmp_bmaric():
     # plt.plot(t, abs_velocities, marker='o', linestyle='-', color='blue', label='Velocities')
     # plt.show()
 
+def dmp_mould():
+    # Create a DMP from a 3-D trajectory
+    dims = 3
+    dt = 1.0
+    K = 100
+    D = 2.0 * np.sqrt(K)
+    num_bases = 4
+    traj = []
+    # Read the file and process each line
+    # Define the file path
+    file_path = "data/mould_filtered_path.csv"
+
+    # Read the CSV file and create a list of 3-member arrays
+    with open(file_path, 'r') as csv_file:
+        reader = csv.reader(csv_file)
+        for row in reader:
+            traj.append([float(value) for value in row])  # Convert each value to float
+
+    resp = makeLFDRequest(dims, traj, dt, K, D, num_bases)
+
+    # Set it as the active DMP
+    makeSetActiveRequest(resp.dmp_list)
+
+    # Now, generate a plan
+    #x_0 = [0.0, 0.0, 0.0]           # Plan starting at a different point than demo
+    x_0 = traj[0]
+    x_dot_0 = [0.0, 0.0, 0.0]
+    t_0 = 0
+    #goal = [0.2, 1.0, 1.0]          # Plan to a different goal than demo
+    #goal = [f - l for f, l in zip(traj[-1], traj[0])]
+    goal = copy.deepcopy(traj[-1])
+    #goal[0] -= 0.1
+    goal_thresh = [0.01, 0.01, 0.01]
+    seg_length = -1            # Plan until convergence to goal
+    tau = 2 * resp.tau         # Desired plan should take twice as long as demo
+    dt = 1.0
+    integrate_iter = 5         # dt is rather large, so this is > 1
+    plan = makePlanRequest(x_0, x_dot_0, t_0, goal, goal_thresh, seg_length, tau, dt, integrate_iter)
+
+    # print(plan)
+
+    plan_positions = []
+    plan_velocities = []
+    for point in plan.plan.points:
+        plan_positions.append(point.positions)
+        plan_velocities.append(point.velocities)
+
+    plot_dmp_3d(traj, plan_positions, goal)
+    plot_new_3d(traj, plan_positions)
+
 if __name__ == '__main__':
     rospy.init_node('dmp_tutorial_node')
     # dmp_original()
@@ -608,4 +659,5 @@ if __name__ == '__main__':
     # dmp_original_3d()
     # dmp_semicircle_3d()
     # dmp_data()
-    dmp_bmaric()
+    # dmp_bmaric()
+    dmp_mould()
