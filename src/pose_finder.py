@@ -1,12 +1,62 @@
 #!/usr/bin/env python3
  
 import math
+import roslib
+import csv
 import numpy as np
 import matplotlib.pyplot as plt
 import tf.transformations as tft
 import rospy
 from geometry_msgs.msg import Pose, Point, Quaternion
 from std_msgs.msg import String
+roslib.load_manifest('dmp')
+from dmp.srv import *
+from dmp.msg import *
+
+# Learn a DMP from demonstration data
+def makeLFDRequest(dims, traj, dt, K_gain, D_gain, num_bases):
+    demotraj = DMPTraj()
+
+    for i in range(len(traj)):
+        pt = DMPPoint()
+        pt.positions = traj[i]
+        demotraj.points.append(pt)
+        demotraj.times.append(dt * i)
+
+    k_gains = [K_gain] * dims
+    d_gains = [D_gain] * dims
+
+    print("Starting LfD...")
+    rospy.wait_for_service('learn_dmp_from_demo')
+    try:
+        lfd = rospy.ServiceProxy('learn_dmp_from_demo', LearnDMPFromDemo)
+        resp = lfd(demotraj, k_gains, d_gains, num_bases)
+    except rospy.ServiceException as e:
+        print("Service call failed: %s" % e)
+    print("LfD done")
+
+    return resp
+
+# Set a DMP as active for planning
+def makeSetActiveRequest(dmp_list):
+    try:
+        sad = rospy.ServiceProxy('set_active_dmp', SetActiveDMP)
+        sad(dmp_list)
+    except rospy.ServiceException as e:
+        print("Service call failed: %s" % e)
+
+# Generate a plan from a DMP
+def makePlanRequest(x_0, x_dot_0, t_0, goal, goal_thresh, seg_length, tau, dt, integrate_iter):
+    print("Starting DMP planning...")
+    rospy.wait_for_service('get_dmp_plan')
+    try:
+        gdp = rospy.ServiceProxy('get_dmp_plan', GetDMPPlan)
+        resp = gdp(x_0, x_dot_0, t_0, goal, goal_thresh, seg_length, tau, dt, integrate_iter)
+    except rospy.ServiceException as e:
+        print("Service call failed: %s" % e)
+    print("DMP planning done")
+
+    return resp
 
 def string_to_point(point_string):
     # Split the string
@@ -134,38 +184,6 @@ def find_default_pose(point1, point2):
     pose.orientation = default_orientation
 
     return pose
-
-# REDUNDANT
-# def find_start_points_on_semicircle(radius, num_strokes, tool_width):
-#     """
-#     Find the start points of each tool stroke on the inner surface of the half-cylinder (semicircle),
-#     ensuring the first and last strokes are half the tool width away from the edges.
-    
-#     Parameters:
-#     radius (float): The radius of the semicircle.
-#     num_strokes (int): The number of equally spaced points (strokes).
-#     tool_width (float): The width of the tooltip.
-    
-#     Returns:
-#     list: A list of (x, y) coordinates for the start points on the semicircle.
-#     """
-#     points = []
-    
-#     # Angular range to cover (excluding half-tool widths on both sides)
-#     start_angle = tool_width / (2 * radius)
-#     end_angle = np.pi - tool_width / (2 * radius)
-    
-#     # Calculate the angular step (divide the semicircle into num_strokes equal parts)
-#     angle_step = (end_angle - start_angle) / (num_strokes - 1)
-    
-#     # Calculate the (x, y) coordinates for each start point
-#     for i in range(num_strokes):
-#         theta = start_angle + i * angle_step  # Angle for each point
-#         x = radius * np.cos(theta) + radius
-#         y = radius * np.sin(theta)
-#         points.append((x, y))
-    
-#     return points
 
 def find_poses_on_semicircle(radius, num_strokes, tool_width, hover):
     """
@@ -365,32 +383,7 @@ def swap_every_second_element(list1, list2):
     
     return list1, list2
 
-# REDUNDANT
-# def plot_semicircle(radius, start_points):
-#     """
-#     Plot the start points of the tool strokes on a semicircle.
-    
-#     Parameters:
-#     radius (float): The radius of the semicircle.
-#     start_points (list): A list of (x, y) coordinates for the start points on the semicircle.
-#     """
-#     x_vals = [p[0] for p in start_points]
-#     y_vals = [p[1] for p in start_points]
-
-#     theta = np.linspace(0, np.pi, 100)  # Angle from 0 to pi for a semicircle
-#     x_semi = radius * np.cos(theta)  # x = r * cos(theta)
-#     y_semi = radius * np.sin(theta)  # y = r * sin(theta)
-
-#     plt.plot(x_semi, y_semi, color='black') # Plot semicircle
-#     plt.plot(x_vals, y_vals, 'bo')  # Plot start points as blue circles
-#     plt.plot(x_vals, y_vals, 'r--')  # Connect points with a red dashed line
-#     plt.gca().set_aspect('equal', adjustable='box')
-#     plt.title(f"Start points of {num_strokes} tool strokes on the semicircle")
-#     plt.xlabel("X-axis")
-#     plt.ylabel("Y-axis")
-#     plt.show()
-
-def plot_strokes_3d(sp_first, forward_vector, diameter_vector, start_points, end_points, start_points_hover, end_points_hover, tf_vector, transformation_matrix, start_radius, end_radius):
+def plot_strokes_3d(sp_first, forward_vector, diameter_vector, start_points, end_points, start_points_hover, end_points_hover, tf_vector, transformation_matrix, start_radius, end_radius, start_angle, angle_step):
     """
     Plot the start points of the tool strokes on a semicylinder in 3D.
     
@@ -416,10 +409,10 @@ def plot_strokes_3d(sp_first, forward_vector, diameter_vector, start_points, end
     ax = fig.add_subplot(111, projection='3d')
 
     # Plot stroke vector
-    ax.quiver(sp_first.x, sp_first.y, sp_first.z, forward_vector[0], forward_vector[1], forward_vector[2], color='blue', label='Stroke vector')
+    # ax.quiver(sp_first.x, sp_first.y, sp_first.z, forward_vector[0], forward_vector[1], forward_vector[2], color='blue', label='Stroke vector')
 
     # Plot diameter vector
-    ax.quiver(sp_first.x, sp_first.y, sp_first.z, diameter_vector[0], diameter_vector[1], diameter_vector[2], color='red', label='Diameter vector')
+    # ax.quiver(sp_first.x, sp_first.y, sp_first.z, diameter_vector[0], diameter_vector[1], diameter_vector[2], color='red', label='Diameter vector')
 
     # Calculate start semicircle points
     theta = np.linspace(0, np.pi, 100)  # Angle from 0 to pi for a semicircle
@@ -454,28 +447,38 @@ def plot_strokes_3d(sp_first, forward_vector, diameter_vector, start_points, end
     # Plot semicylinder outline
     ax.plot(x_semi_1, y_semi_1, z_semi_1, color='black')
     ax.plot(x_semi_2, y_semi_2, z_semi_2, color='black')
-    ax.plot([sp_1[0], ep_1[0]], [sp_1[1], ep_1[1]], [sp_1[2], ep_1[2]], color='black')
-    ax.plot([sp_2[0], ep_2[0]], [sp_2[1], ep_2[1]], [sp_2[2], ep_2[2]], color='black')
+    # ax.plot([sp_1[0], ep_1[0]], [sp_1[1], ep_1[1]], [sp_1[2], ep_1[2]], color='black')
+    # ax.plot([sp_2[0], ep_2[0]], [sp_2[1], ep_2[1]], [sp_2[2], ep_2[2]], color='black')
 
+    cnt = 0
     # Plot strokes
     for start, end in zip(start_points, end_points):
-        ax.plot([start.x, end.x], [start.y, end.y], [start.z, end.z], color='blue')
+        start_np = np.array([start.x, start.y, start.z])
+        end_np = np.array([end.x, end.y, end.z])
+        theta = start_angle + cnt * angle_step  # Angle for each point
+        cnt += 1
+
+        stroke = dmp_mould(start_np, end_np, theta)
+        x, y, z = zip(*stroke)
+
+        ax.plot(x, y, z, color='blue')
+        #ax.plot([start.x, end.x], [start.y, end.y], [start.z, end.z], color='blue')
 
     # Plot start points
-    ax.plot(sp_x_vals, sp_y_vals, sp_z_vals, 'bo')  # Plot start points as blue dots
-    ax.plot(sp_x_vals, sp_y_vals, sp_z_vals, 'r--')  # Connect points with a red dashed line
+    # ax.plot(sp_x_vals, sp_y_vals, sp_z_vals, 'bo')  # Plot start points as blue dots
+    # ax.plot(sp_x_vals, sp_y_vals, sp_z_vals, 'r--')  # Connect points with a red dashed line
 
     # Plot hover strokes
-    for p1, p2 in zip(end_points[1:], end_points_hover[1:]):
-        ax.plot([p1.x, p2.x], [p1.y, p2.y], [p1.z, p2.z], color='green')
+    # for p1, p2 in zip(end_points[1:], end_points_hover[1:]):
+    #     ax.plot([p1.x, p2.x], [p1.y, p2.y], [p1.z, p2.z], color='green')
 
-    for p1, p2 in zip(start_points[:-1], start_points_hover[:-1]):
-        ax.plot([p1.x, p2.x], [p1.y, p2.y], [p1.z, p2.z], color='green')
+    # for p1, p2 in zip(start_points[:-1], start_points_hover[:-1]):
+    #     ax.plot([p1.x, p2.x], [p1.y, p2.y], [p1.z, p2.z], color='green')
 
-    swap_every_second_element(start_points_hover, end_points_hover)
+    # swap_every_second_element(start_points_hover, end_points_hover)
     
-    for p1, p2 in zip(end_points_hover[1:], start_points_hover[:-1]):
-        ax.plot([p1.x, p2.x], [p1.y, p2.y], [p1.z, p2.z], color='green')
+    # for p1, p2 in zip(end_points_hover[1:], start_points_hover[:-1]):
+    #     ax.plot([p1.x, p2.x], [p1.y, p2.y], [p1.z, p2.z], color='green')
 
     # Set plot limits and labels
     ax.set_xlim([-5, 5])
@@ -491,6 +494,52 @@ def plot_strokes_3d(sp_first, forward_vector, diameter_vector, start_points, end
 
     # Show the plot
     plt.show()
+
+def dmp_mould(start, goal, theta):
+    # Create a DMP from a 3-D trajectory
+    dims = 3
+    dt = 1.0
+    K = 100
+    D = 2.0 * np.sqrt(K)
+    num_bases = 4
+    traj = []
+    # Read the file and process each line
+    # Define the file path
+    file_path = "data/mould_filtered_path.csv"
+
+    # Read the CSV file and create a list of 3-member arrays
+    with open(file_path, 'r') as csv_file:
+        reader = csv.reader(csv_file)
+        for row in reader:
+            mould_dims = [float(value) for value in row]
+            mould_dims_fixed = [mould_dims[1], -mould_dims[0], mould_dims[2]]
+            mould_dims_rotated = [mould_dims_fixed[0],
+                                  mould_dims_fixed[1] * math.cos(theta) + mould_dims_fixed[2] * math.sin(theta),
+                                  mould_dims_fixed[2] * math.cos(theta) - mould_dims_fixed[1] * math.sin(theta)]
+            traj.append(mould_dims_rotated)
+            # traj.append([float(value) for value in row])  # Convert each value to float
+
+    resp = makeLFDRequest(dims, traj, dt, K, D, num_bases)
+
+    # Set it as the active DMP
+    makeSetActiveRequest(resp.dmp_list)
+
+    # Now, generate a plan
+    #x_0 = [0.0, 0.0, 0.0]           # Plan starting at a different point than demo
+    x_dot_0 = [0.0, 0.0, 0.0]
+    t_0 = 0
+    goal_thresh = [0.01, 0.01, 0.01]
+    seg_length = -1            # Plan until convergence to goal
+    tau = 2 * resp.tau         # Desired plan should take twice as long as demo
+    dt = 1.0
+    integrate_iter = 5         # dt is rather large, so this is > 1
+    plan = makePlanRequest(start, x_dot_0, t_0, goal, goal_thresh, seg_length, tau, dt, integrate_iter)
+
+    plan_positions = []
+    for point in plan.plan.points:
+        plan_positions.append(point.positions)
+
+    return plan_positions
 
 def publish_poses(start_poses, end_poses, start_hover_poses, end_hover_poses):
     """
@@ -623,12 +672,31 @@ def main():
     end_poses_tf = translate_poses(end_poses_temp, tf_vector)
     end_poses_hover_tf = translate_poses(end_poses_hover_temp, tf_vector)
 
+    pose_0 = start_poses_tf[0]
+    quaternion_0 = (
+        pose_0.orientation.x,
+        pose_0.orientation.y,
+        pose_0.orientation.z,
+        pose_0.orientation.w
+    )
+    pose_1 = start_poses_tf[1]
+    quaternion_1 = (
+        pose_1.orientation.x,
+        pose_1.orientation.y,
+        pose_1.orientation.z,
+        pose_1.orientation.w
+    )
+
+    roll_0, pitch_0, yaw_0 = tft.euler_from_quaternion(quaternion_0)
+    roll_1, pitch_1, yaw_1 = tft.euler_from_quaternion(quaternion_1)
+    
+
     # Plot the start and end points on the cylinder
     plot_strokes_3d(
         sp_first, forward_vector, diameter_vector,
         convert_poses_to_points(start_poses_tf), convert_poses_to_points(end_poses_tf),
         convert_poses_to_points(start_poses_hover_tf), convert_poses_to_points(end_poses_hover_tf),
-        tf_vector, transformation_matrix, start_radius, end_radius)
+        tf_vector, transformation_matrix, start_radius, end_radius, pitch_0, pitch_1 - pitch_0)
 
     publish_poses(start_poses_tf, end_poses_tf, start_poses_hover_tf, end_poses_hover_tf)
 
