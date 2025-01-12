@@ -563,8 +563,8 @@ def publish_poses(start_poses, end_poses, start_hover_poses, end_hover_poses):
 
     rospy.sleep(1)
 
-    swap_every_second_element(start_poses, end_poses)
-    swap_every_second_element(start_hover_poses, end_hover_poses)
+    #swap_every_second_element(start_poses, end_poses)
+    #swap_every_second_element(start_hover_poses, end_hover_poses)
 
     # Publish start poses
     for pose in start_poses:
