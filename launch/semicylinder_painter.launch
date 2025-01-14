@@ -1,6 +1,6 @@
 <launch>
     <!-- Launch the motion_planner node -->
-    <node pkg="semicyl_painter" type="motion_planner.py" name="motion_planner_node" output="screen">
+    <node pkg="semicyl_painter" type="motion_planner_kinova.py" name="motion_planner_node" output="screen">
     </node>
 
     <!-- Launch the pose_finder node -->

@@ -505,7 +505,7 @@ def dmp_mould(start, goal, theta):
     traj = []
     # Read the file and process each line
     # Define the file path
-    file_path = "data/mould_filtered_path.csv"
+    file_path = "semicyl_painter/data/mould_filtered_path.csv"
 
     # Read the CSV file and create a list of 3-member arrays
     with open(file_path, 'r') as csv_file:
@@ -606,12 +606,15 @@ def main():
     # sp_last_str = input("Enter the coordinates of the last start point separated by spaces: ")
 
     # Input from ros launch file
-    tool_width = rospy.get_param("~tool_width", 0.005)  # Default value is 0.05
+    tool_width = rospy.get_param("~tool_width", 0.05)  # Default value is 0.05
     overlap = rospy.get_param("~tool_overlap", 0.0)  # Default value is 0.0
 
-    sp_first_str = rospy.get_param("~sp_first", "0.2 0.0 0.0")  # Default is "0.2 0.0 0.0"
-    ep_first_str = rospy.get_param("~ep_first", "0.37 -0.01875 0.0")  # Default is "0.7 0.0 0.0"
-    sp_last_str = rospy.get_param("~sp_last", "0.2 -0.063 0.0")  # Default is "0.2 -0.5 0.0"
+    sp_first_str = rospy.get_param("~sp_first", "0.6 -0.2 0.5")  # Default is "0.2 0.0 0.0"
+    ep_first_str = rospy.get_param("~ep_first", "0.7 -0.205 0.5")  # Default is "0.7 0.0 0.0"
+    sp_last_str = rospy.get_param("~sp_last", "0.6 -0.3 0.5")  # Default is "0.2 -0.5 0.0"
+    #sp_first_str = rospy.get_param("~sp_first", "0.2 0.0 0.0")  # Default is "0.2 0.0 0.0"
+    #ep_first_str = rospy.get_param("~ep_first", "0.37 -0.01875 0.0")  # Default is "0.7 0.0 0.0"
+    #sp_last_str = rospy.get_param("~sp_last", "0.2 -0.063 0.0")  # Default is "0.2 -0.5 0.0"
 
     # Truncate tool width to include overlap
     tool_width -= overlap
