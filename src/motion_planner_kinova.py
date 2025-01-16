@@ -10,10 +10,13 @@ import moveit_commander
 import moveit_msgs.msg
 import numpy as np
 import tf.transformations as tft
-from geometry_msgs.msg import Pose
+from geometry_msgs.msg import Pose, TransformStamped
+from sensor_msgs.msg import PointCloud2, PointField
+from std_msgs.msg import Header
 from std_msgs.msg import String
 from dmp.srv import *
 from dmp.msg import *
+from tf2_ros import TransformBroadcaster
 
 # Learn a DMP from demonstration data
 def makeLFDRequest(dims, traj, dt, K_gain, D_gain, num_bases):
@@ -103,6 +106,17 @@ class MotionPlanner(object):
         self.end_poses = []
         self.start_hover_poses = []
         self.end_hover_poses = []
+        self.dmps = []
+
+        self.publisher = rospy.Publisher('/mould', PointCloud2, queue_size=10)
+
+    def publish_pointcloud(self):
+        """
+        Publishes the PointCloud2 message.
+        """
+        pointcloud = create_pointcloud2(self.dmps)
+        self.publisher.publish(pointcloud)
+        #rospy.loginfo(f"Published PointCloud2 message with {len(self.dmps)} points.")
 
     def get_cartesian_pose(self):
         arm_group = self.arm_group
@@ -116,10 +130,19 @@ class MotionPlanner(object):
 
 
     def go_to_pose_goal_cartesian(self, waypoints):
+        for waypoint in waypoints:
+            original_q = waypoint.orientation
+            axis = (0, 1, 0)  # Rotate around Y-axis
+            angle = 30  # Degrees
+            waypoint.orientation = rotate_quaternion(original_q, axis, angle)
+            p = waypoint.position
+            self.dmps.append([p.x, p.y, p.z])
+        
         (plan, fraction) = self.arm_group.compute_cartesian_path(
             waypoints, 0.01  # waypoints to follow  # eef_step
         )
 
+        self.publish_pointcloud()
         self.arm_group.execute(plan, wait=True)
 
     def go_to_pose_goal_dmp(self, start_pose, goal_pose, theta):
@@ -171,10 +194,63 @@ class MotionPlanner(object):
             pose.position.x = point.positions[0]
             pose.position.y = point.positions[1]
             pose.position.z = point.positions[2]
-            pose.orientation = start_pose.orientation
+            #print(traj[0])
+            #pose.orientation = start_pose.orientation
+
+            original_q = start_pose.orientation
+            axis = (0, 0, 1)  # Rotate around Z-axis
+            angle = math.degrees(-theta)  # Degrees
+            pose.orientation = rotate_quaternion(original_q, axis, angle)
+
+            # Tool offset
+            #original_q = start_pose.orientation
+            #axis = (1, 0, 0)  # Rotate around Y-axis
+            #angle = 90  # Degrees
+            #pose.orientation = rotate_quaternion(original_q, axis, angle)
+
             waypoints.append(pose)
         
         self.go_to_pose_goal_cartesian(waypoints)
+
+def create_pointcloud2(points, frame_id="world"):
+    """
+    Create a PointCloud2 message from a list of 3D points.
+    
+    Args:
+        points (list): List of tuples containing (x, y, z) coordinates.
+        frame_id (str): The reference frame of the point cloud.
+
+    Returns:
+        PointCloud2: The generated PointCloud2 message.
+    """
+    header = Header()
+    header.stamp = rospy.Time.now()  # ROS1 timestamp
+    header.frame_id = frame_id
+
+    # Define the fields of the PointCloud2 message
+    fields = [
+        PointField(name="x", offset=0, datatype=PointField.FLOAT32, count=1),
+        PointField(name="y", offset=4, datatype=PointField.FLOAT32, count=1),
+        PointField(name="z", offset=8, datatype=PointField.FLOAT32, count=1),
+    ]
+
+    point_step = 12  # 4 bytes each for x, y, z
+    row_step = point_step * len(points)
+
+    # Pack the points into binary format
+    data = b"".join([struct.pack("fff", *point) for point in points])
+
+    return PointCloud2(
+        header=header,
+        height=1,
+        width=len(points),
+        fields=fields,
+        is_bigendian=False,
+        point_step=point_step,
+        row_step=row_step,
+        data=data,
+        is_dense=True,
+    )
 
 def start_pose_callback(start_pose, planner):
         planner.start_poses.append(start_pose)
@@ -188,71 +264,81 @@ def start_hover_pose_callback(start_hover_pose, planner):
 def end_hover_pose_callback(end_hover_pose, planner):
         planner.end_hover_poses.append(end_hover_pose)
 
-def ready_callback (defalut_pose, planner):
+def ready_callback (default_pose, planner):
         input("============ Press `Enter` to initiate the motion planner")
 
-        print("-- Moving to End")
-        waypoints = []
-        waypoints.append(copy.deepcopy(planner.end_poses[0]))
-        print("Goal pose:")
-        print(str(planner.end_poses[0].orientation))
-        planner.go_to_pose_goal_cartesian(waypoints)
-        print("Real pose:")
-        print(str(planner.get_cartesian_pose().orientation))
-
-        # Go to first start point
-        waypoints = []
-        waypoints.append(copy.deepcopy(planner.start_hover_poses[0]))
-        waypoints.append(copy.deepcopy(planner.start_poses[0]))
-        print("-- Moving to Start")
-        print("Goal pose:")
-        print(str(planner.start_poses[0].orientation))
-        planner.go_to_pose_goal_cartesian(waypoints)
-        print("Real pose:")
-        print(str(planner.get_cartesian_pose().orientation))
+        # print("-- Moving to End")
+        # waypoints = []
+        # waypoints.append(copy.deepcopy(planner.end_poses[0]))
+        # print("Goal pose:")
+        # print(str(planner.end_poses[0].orientation))
+        # planner.go_to_pose_goal_cartesian(waypoints)
+        # print("Real pose:")
+        # print(str(planner.get_cartesian_pose().orientation))
 
         roll_0, pitch_0, yaw_0 = extract_orientation_from_pose(planner.start_poses[0])
         roll_1, pitch_1, yaw_1 = extract_orientation_from_pose(planner.start_poses[1])
+
+        default_pose.orientation = planner.start_poses[0].orientation
+
+        # Go to first start point
+        waypoints = []
+        waypoints.append(copy.deepcopy(default_pose))
+        print("-- Moving to Start")
+        # print("Goal pose:")
+        # print(str(planner.start_poses[0].orientation))
+        planner.go_to_pose_goal_cartesian(waypoints)
+        # print("Real pose:")
+        # print(str(planner.get_cartesian_pose().orientation))
         start_angle = pitch_0
         angle_step = pitch_1 - pitch_0
         theta_list = []
         
         for i in range(len(planner.start_poses)):
-            # Execute the tool stroke
+            waypoints = []
             theta = start_angle + i * angle_step
-            # print("Theta: " + str(math.degrees(theta)))
+
+            # Go to next start point
+            waypoints.append(copy.deepcopy(rotate_point_z(planner.start_hover_poses[i], theta)))
+            waypoints.append(copy.deepcopy(rotate_point_z(planner.start_poses[i], theta)))
+            print("-- Moving to Pose#" + str(i+2) + " ---------------")
+            print("Goal pose:")
+            print(str(planner.start_poses[i].orientation))
+            planner.go_to_pose_goal_cartesian(waypoints)
+            waypoints = []
+            print("Real pose:")
+            print(str(planner.get_cartesian_pose().orientation))
+
+            # Execute the tool stroke
             print("-- Executing DMP#" + str(i+1) + " -------------------#")
             t_s = time.time()
             print("Goal pose:")
             print(str(planner.end_poses[i].orientation))
             planner.go_to_pose_goal_dmp(planner.start_poses[i], planner.end_poses[i], theta)
+            waypoints = []
             t_e = time.time()
             print("Real pose:")
             print(str(planner.get_cartesian_pose().orientation))
             print("-- DMP cpmplete, time elapsed: " + str(t_e-t_s) + " seconds")
             theta_list.append(math.degrees(theta))
 
-            if(i < len(planner.start_poses) - 1):
-                # Go to next start point
-                waypoints = []
-                waypoints.append(copy.deepcopy(planner.end_hover_poses[i]))
-                waypoints.append(copy.deepcopy(planner.start_hover_poses[i+1]))
-                waypoints.append(copy.deepcopy(planner.start_poses[i+1]))
-                print("-- Moving to Pose#" + str(i+2) + " ---------------")
-                print("Goal pose:")
-                print(str(planner.start_poses[i+1].orientation))
-                planner.go_to_pose_goal_cartesian(waypoints)
-                print("Real pose:")
-                print(str(planner.get_cartesian_pose().orientation))
+            waypoints.append(copy.deepcopy(rotate_point_z(planner.end_hover_poses[i], theta)))
+            planner.go_to_pose_goal_cartesian(waypoints)
 
         # Go to default pose
-        waypoints = []
-        waypoints.append(copy.deepcopy(defalut_pose))
+        #waypoints = []
+        #waypoints.append(copy.deepcopy(defalut_pose))
+        #print("-- Moving to Default")
         #planner.go_to_pose_goal_cartesian(waypoints)
+        waypoints = []
+        waypoints.append(copy.deepcopy(default_pose))
+        print("-- Moving to Start")
+        planner.go_to_pose_goal_cartesian(waypoints)
+
         print("-- Completed!")
         print(theta_list)
 
-def quat_to_euler(pose):
+def euler_from_orientation(pose):
     quaternion = (
         pose.orientation.x,
         pose.orientation.y,
@@ -290,6 +376,33 @@ def create_pose_with_orientation(roll, pitch, yaw):
 
     return pose
 
+def rotate_quaternion(q, axis, angle_deg):
+    angle_rad = math.radians(angle_deg)
+    half_angle = angle_rad / 2.0
+    pose = Pose()
+
+    # Compute the rotation quaternion r
+    r_w = math.cos(half_angle)
+    r_x = math.sin(half_angle) * axis[0]
+    r_y = math.sin(half_angle) * axis[1]
+    r_z = math.sin(half_angle) * axis[2]
+
+    # Quaternion multiplication: r * q
+    pose.orientation.x = r_w * q.x + r_x * q.w + r_y * q.z - r_z * q.y
+    pose.orientation.y = r_w * q.y - r_x * q.z + r_y * q.w + r_z * q.x
+    pose.orientation.z = r_w * q.z + r_x * q.y - r_y * q.x + r_z * q.w
+    pose.orientation.w = r_w * q.w - r_x * q.x - r_y * q.y - r_z * q.z
+
+    return pose.orientation
+
+def rotate_point_z(pose, theta):
+    new_pose = Pose()
+    original_q = pose.orientation
+    axis = (0, 0, 1)  # Rotate around Z-axis
+    angle = math.degrees(-theta)  # Degrees
+    new_pose.orientation = rotate_quaternion(original_q, axis, angle)
+    new_pose.position = pose.position
+    return new_pose
 
 def main():
     # Initialize the ROS node

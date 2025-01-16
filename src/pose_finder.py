@@ -7,6 +7,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import tf.transformations as tft
 import rospy
+import tf2_ros
 from geometry_msgs.msg import Pose, Point, Quaternion
 from std_msgs.msg import String
 roslib.load_manifest('dmp')
@@ -541,7 +542,7 @@ def dmp_mould(start, goal, theta):
 
     return plan_positions
 
-def publish_poses(start_poses, end_poses, start_hover_poses, end_hover_poses):
+def publish_poses(tf_matrix, start_poses, end_poses, start_hover_poses, end_hover_poses):
     """
     Publish the poses of the tool strokes.
     
@@ -568,28 +569,90 @@ def publish_poses(start_poses, end_poses, start_hover_poses, end_hover_poses):
 
     # Publish start poses
     for pose in start_poses:
-        start_pub.publish(pose)
+        start_pub.publish(apply_transformation_to_pose(tf_matrix, pose))
         #rospy.loginfo(f"Published Start Pose: {pose}")
 
     # Publish end poses
     for pose in end_poses:
-        end_pub.publish(pose)
+        end_pub.publish(apply_transformation_to_pose(tf_matrix, pose))
         #rospy.loginfo(f"Published End Pose: {pose}")
 
     # Publish start hover poses
     for pose in start_hover_poses:
-        start_hover_pub.publish(pose)
+        start_hover_pub.publish(apply_transformation_to_pose(tf_matrix, pose))
         #rospy.loginfo(f"Published Start Hover Pose: {pose}")
 
     # Publish end hover poses
     for pose in end_hover_poses:
-        end_hover_pub.publish(pose)
+        end_hover_pub.publish(apply_transformation_to_pose(tf_matrix, pose))
         #rospy.loginfo(f"Published End Hover Pose: {pose}")
 
     default_pose = find_default_pose(start_poses[0].position, start_poses[-1].position)
 
-    default_pub.publish(default_pose)
+    default_pub.publish(apply_transformation_to_pose(tf_matrix, default_pose))
     #rospy.loginfo(f"All poses published!")
+
+def get_transformation_matrix(buffer, target_frame, source_frame):
+    try:
+        # Wait for the transform to become available
+        transform = buffer.lookup_transform(target_frame, source_frame, rospy.Time(0), rospy.Duration(4.0))
+        
+        # Extract translation and rotation
+        trans = transform.transform.translation
+        rot = transform.transform.rotation
+        
+        # Convert to a 4x4 transformation matrix
+        translation = np.array([trans.x, trans.y, trans.z])
+        rotation = np.array([rot.x, rot.y, rot.z, rot.w])
+        
+        # Construct the matrix
+        transform_matrix = np.dot(tft.translation_matrix(translation), tft.quaternion_matrix(rotation))
+        return transform_matrix
+    except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException) as e:
+        rospy.logerr(f"Could not find transformation: {e}")
+        return None
+    
+def apply_transformation_to_pose(matrix, pose):
+    """
+    Applies a 4x4 transformation matrix to a geometry_msgs.msg.Pose.
+
+    Args:
+        matrix (np.ndarray): A 4x4 transformation matrix.
+        pose (Pose): A ROS Pose object with position and orientation.
+
+    Returns:
+        Pose: A new Pose object with the transformed position and orientation.
+    """
+    # Convert Pose position to a homogeneous vector
+    position = np.array([pose.position.x, pose.position.y, pose.position.z, 1.0])
+    
+    # Apply the transformation matrix to the position
+    transformed_position = np.dot(matrix, position)
+
+    # Extract the quaternion from the pose
+    quaternion = [
+        pose.orientation.x,
+        pose.orientation.y,
+        pose.orientation.z,
+        pose.orientation.w
+    ]
+
+    # Apply the rotation part of the transformation matrix to the quaternion
+    full_matrix = tft.quaternion_matrix(quaternion)  # Convert quaternion to 4x4 matrix
+    transformed_orientation_matrix = np.dot(matrix, full_matrix)  # Apply transformation
+    transformed_quaternion = tft.quaternion_from_matrix(transformed_orientation_matrix)
+
+    # Create a new Pose object with transformed position and orientation
+    transformed_pose = Pose()
+    transformed_pose.position.x = transformed_position[0]
+    transformed_pose.position.y = transformed_position[1]
+    transformed_pose.position.z = transformed_position[2]
+    transformed_pose.orientation.x = transformed_quaternion[0]
+    transformed_pose.orientation.y = transformed_quaternion[1]
+    transformed_pose.orientation.z = transformed_quaternion[2]
+    transformed_pose.orientation.w = transformed_quaternion[3]
+
+    return transformed_pose
 
 def main():
     # Initialize the ROS node
@@ -605,16 +668,30 @@ def main():
     # ep_first_str = input("Enter the coordinates of the first end point separated by spaces: ")
     # sp_last_str = input("Enter the coordinates of the last start point separated by spaces: ")
 
+    tf_buffer = tf2_ros.Buffer()
+    listener = tf2_ros.TransformListener(tf_buffer)
+    target_frame = "mould"
+    source_frame = "world"
+    
+    tf_matrix = get_transformation_matrix(tf_buffer, target_frame, source_frame)
+
     # Input from ros launch file
-    tool_width = rospy.get_param("~tool_width", 0.05)  # Default value is 0.05
+    tool_width = rospy.get_param("~tool_width", 0.01)  # Default value is 0.05
     overlap = rospy.get_param("~tool_overlap", 0.0)  # Default value is 0.0
 
-    sp_first_str = rospy.get_param("~sp_first", "0.6 -0.2 0.5")  # Default is "0.2 0.0 0.0"
-    ep_first_str = rospy.get_param("~ep_first", "0.7 -0.205 0.5")  # Default is "0.7 0.0 0.0"
-    sp_last_str = rospy.get_param("~sp_last", "0.6 -0.3 0.5")  # Default is "0.2 -0.5 0.0"
-    #sp_first_str = rospy.get_param("~sp_first", "0.2 0.0 0.0")  # Default is "0.2 0.0 0.0"
-    #ep_first_str = rospy.get_param("~ep_first", "0.37 -0.01875 0.0")  # Default is "0.7 0.0 0.0"
-    #sp_last_str = rospy.get_param("~sp_last", "0.2 -0.063 0.0")  # Default is "0.2 -0.5 0.0"
+    #sp_first_str = rospy.get_param("~sp_first", "0.3 -0.2 0.5")  # Default is "0.2 0.0 0.0"
+    #ep_first_str = rospy.get_param("~ep_first", "0.4 -0.205 0.5")  # Default is "0.7 0.0 0.0"
+    #sp_last_str = rospy.get_param("~sp_last", "0.3 -0.3 0.5")  # Default is "0.2 -0.5 0.0"
+    #sp_first_str = rospy.get_param("~sp_first", "0.6 -0.2 0.5")  # Default is "0.2 0.0 0.0"
+    #ep_first_str = rospy.get_param("~ep_first", "0.7 -0.205 0.5")  # Default is "0.7 0.0 0.0"
+    #sp_last_str = rospy.get_param("~sp_last", "0.6 -0.3 0.5")  # Default is "0.2 -0.5 0.0"
+    # sp_first_str = rospy.get_param("~sp_first", "0.3 0.0 0.5")  # Default is "0.2 0.0 0.0"
+    # ep_first_str = rospy.get_param("~ep_first", "0.57 -0.01875 0.5")  # Default is "0.7 0.0 0.0"
+    # sp_last_str = rospy.get_param("~sp_last", "0.3 -0.063 0.5")  # Default is "0.2 -0.5 0.0"
+
+    sp_first_str = rospy.get_param("~sp_first", "-0.27 0.0315 0.0")  # Default is "0.2 0.0 0.0"
+    ep_first_str = rospy.get_param("~ep_first", "0.0 0.01275 0.0")  # Default is "0.7 0.0 0.0"
+    sp_last_str = rospy.get_param("~sp_last", "-0.27 -0.0315 0.0")  # Default is "0.2 -0.5 0.0"
 
     # Truncate tool width to include overlap
     tool_width -= overlap
@@ -701,7 +778,7 @@ def main():
         convert_poses_to_points(start_poses_hover_tf), convert_poses_to_points(end_poses_hover_tf),
         tf_vector, transformation_matrix, start_radius, end_radius, pitch_0, pitch_1 - pitch_0)
 
-    publish_poses(start_poses_tf, end_poses_tf, start_poses_hover_tf, end_poses_hover_tf)
+    publish_poses(tf_matrix, start_poses_tf, end_poses_tf, start_poses_hover_tf, end_poses_hover_tf)
 
 if __name__ == '__main__':
     try:

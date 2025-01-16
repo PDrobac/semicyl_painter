@@ -83,7 +83,7 @@ class PointCloudPublisher:
 
 def main():
     rospy.init_node('pointcloud_publisher', anonymous=True)
-    csv_file = "data/mould.csv"
+    csv_file = "semicyl_painter/data/mould.csv"
     pointcloud_publisher = PointCloudPublisher(csv_file)
 
     rate = rospy.Rate(1)  # Publish at 1 Hz
