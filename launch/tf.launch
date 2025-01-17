@@ -4,6 +4,6 @@
   </node>
 
   <node pkg="tf2_ros" type="static_transform_publisher" name="world_mould_broadcaster" 
-  args = "0.7 0 0.5 0 0 0 1 mould world" output="screen">
+  args = "-0.5 0 0.5 0 0 1 0 mould world" output="screen">
   </node>
 </launch>

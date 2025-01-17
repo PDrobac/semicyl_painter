@@ -8,6 +8,7 @@ import time
 import rospy
 import moveit_commander
 import moveit_msgs.msg
+import tf2_ros
 import numpy as np
 import tf.transformations as tft
 from geometry_msgs.msg import Pose, TransformStamped
@@ -110,6 +111,14 @@ class MotionPlanner(object):
 
         self.publisher = rospy.Publisher('/mould', PointCloud2, queue_size=10)
 
+        tf_buffer = tf2_ros.Buffer()
+        listener = tf2_ros.TransformListener(tf_buffer)
+        target_frame = "mould"
+        source_frame = "world"
+        
+        self.tf_matrix = get_transformation_matrix(tf_buffer, target_frame, source_frame)
+        self.rotation = rospy.get_param("~rotation", 0.0)
+
     def publish_pointcloud(self):
         """
         Publishes the PointCloud2 message.
@@ -129,17 +138,22 @@ class MotionPlanner(object):
         return pose.pose
 
 
-    def go_to_pose_goal_cartesian(self, waypoints):
+    def go_to_pose_goal_cartesian(self, waypoints, theta):
+        wps = []
         for waypoint in waypoints:
-            original_q = waypoint.orientation
-            axis = (0, 1, 0)  # Rotate around Y-axis
-            angle = 30  # Degrees
-            waypoint.orientation = rotate_quaternion(original_q, axis, angle)
-            p = waypoint.position
+            wp = apply_transformation_to_pose(self.tf_matrix, waypoint)
+            original_q = wp.orientation
+
+            wp = rotate_pose_around_z(wp, self.rotation + theta)
+            wp = rotate_pose_around_y(wp, 30)
+
+            wp.orientation = original_q
+            wps.append(wp)
+            p = wp.position
             self.dmps.append([p.x, p.y, p.z])
         
         (plan, fraction) = self.arm_group.compute_cartesian_path(
-            waypoints, 0.01  # waypoints to follow  # eef_step
+            wps, 0.01  # waypoints to follow  # eef_step
         )
 
         self.publish_pointcloud()
@@ -169,7 +183,17 @@ class MotionPlanner(object):
                 traj.append(mould_dims_rotated)
                 # traj.append([float(value) for value in row])  # Convert each value to float
 
-        resp = makeLFDRequest(dims, traj, dt, K, D, num_bases)
+        inv_traj = []
+        for p in traj[::-1]:
+            tf_p = np.dot(self.tf_matrix[:3, :3], p)
+            tf_pose = Pose()
+            tf_pose.position.x = tf_p[0]
+            tf_pose.position.y = tf_p[1]
+            tf_pose.position.z = tf_p[2]
+            tf_pose = apply_transformation_to_pose(self.tf_matrix, tf_pose)
+            inv_traj.append([tf_pose.position.x, tf_pose.position.y, tf_pose.position.z])
+
+        resp = makeLFDRequest(dims, inv_traj, dt, K, D, num_bases)
 
         # Set it as the active DMP
         makeSetActiveRequest(resp.dmp_list)
@@ -195,12 +219,12 @@ class MotionPlanner(object):
             pose.position.y = point.positions[1]
             pose.position.z = point.positions[2]
             #print(traj[0])
-            #pose.orientation = start_pose.orientation
+            pose.orientation = start_pose.orientation
 
-            original_q = start_pose.orientation
-            axis = (0, 0, 1)  # Rotate around Z-axis
-            angle = math.degrees(-theta)  # Degrees
-            pose.orientation = rotate_quaternion(original_q, axis, angle)
+            # original_q = start_pose.orientation
+            # axis = (0, 0, 1)  # Rotate around Z-axis
+            # angle = math.degrees(theta)  # Degrees
+            # pose.orientation = rotate_quaternion(original_q, axis, angle)
 
             # Tool offset
             #original_q = start_pose.orientation
@@ -210,7 +234,59 @@ class MotionPlanner(object):
 
             waypoints.append(pose)
         
-        self.go_to_pose_goal_cartesian(waypoints)
+        self.go_to_pose_goal_cartesian(waypoints, -90)
+
+def rotate_pose_around_y(pose, angle_deg):
+    # Convert angle from degrees to radians
+    angle_rad = angle_deg * (3.141592653589793 / 180.0)
+    
+    # Create rotation quaternion for x-axis rotation
+    rotation_q = tft.quaternion_from_euler(0, angle_rad, 0, axes='sxyz')
+
+    # Current orientation quaternion of the pose
+    current_q = [
+        pose.orientation.x,
+        pose.orientation.y,
+        pose.orientation.z,
+        pose.orientation.w,
+    ]
+
+    # Multiply the rotation quaternion with the current quaternion
+    new_q = tft.quaternion_multiply(current_q, rotation_q)
+
+    # Update the pose's orientation
+    pose.orientation.x = new_q[0]
+    pose.orientation.y = new_q[1]
+    pose.orientation.z = new_q[2]
+    pose.orientation.w = new_q[3]
+
+    return pose
+
+def rotate_pose_around_z(pose, angle_deg):
+    # Convert angle from degrees to radians
+    angle_rad = angle_deg * (3.141592653589793 / 180.0)
+    
+    # Create rotation quaternion for x-axis rotation
+    rotation_q = tft.quaternion_from_euler(0, 0, angle_rad, axes='sxyz')
+
+    # Current orientation quaternion of the pose
+    current_q = [
+        pose.orientation.x,
+        pose.orientation.y,
+        pose.orientation.z,
+        pose.orientation.w,
+    ]
+
+    # Multiply the rotation quaternion with the current quaternion
+    new_q = tft.quaternion_multiply(current_q, rotation_q)
+
+    # Update the pose's orientation
+    pose.orientation.x = new_q[0]
+    pose.orientation.y = new_q[1]
+    pose.orientation.z = new_q[2]
+    pose.orientation.w = new_q[3]
+
+    return pose
 
 def create_pointcloud2(points, frame_id="world"):
     """
@@ -265,7 +341,7 @@ def end_hover_pose_callback(end_hover_pose, planner):
         planner.end_hover_poses.append(end_hover_pose)
 
 def ready_callback (default_pose, planner):
-        input("============ Press `Enter` to initiate the motion planner")
+        # input("============ Press `Enter` to initiate the motion planner")
 
         # print("-- Moving to End")
         # waypoints = []
@@ -276,10 +352,19 @@ def ready_callback (default_pose, planner):
         # print("Real pose:")
         # print(str(planner.get_cartesian_pose().orientation))
 
+        quaternion = [
+            default_pose.orientation.x,
+            default_pose.orientation.y,
+            default_pose.orientation.z,
+            default_pose.orientation.w
+        ]
+        sp_e = tft.euler_from_quaternion(quaternion)
+        print(math.degrees(sp_e[0]))
+        print(math.degrees(sp_e[1]))
+        print(math.degrees(sp_e[2]))
+
         roll_0, pitch_0, yaw_0 = extract_orientation_from_pose(planner.start_poses[0])
         roll_1, pitch_1, yaw_1 = extract_orientation_from_pose(planner.start_poses[1])
-
-        default_pose.orientation = planner.start_poses[0].orientation
 
         # Go to first start point
         waypoints = []
@@ -287,43 +372,49 @@ def ready_callback (default_pose, planner):
         print("-- Moving to Start")
         # print("Goal pose:")
         # print(str(planner.start_poses[0].orientation))
-        planner.go_to_pose_goal_cartesian(waypoints)
+        planner.go_to_pose_goal_cartesian(waypoints, 0)
+        print("-- Start reached")
+        
+        input("============ Press `Enter` to continue")
         # print("Real pose:")
         # print(str(planner.get_cartesian_pose().orientation))
         start_angle = pitch_0
         angle_step = pitch_1 - pitch_0
         theta_list = []
+
+        print("-- # of poses: " + str(len(planner.start_poses)))
         
         for i in range(len(planner.start_poses)):
             waypoints = []
             theta = start_angle + i * angle_step
 
             # Go to next start point
-            waypoints.append(copy.deepcopy(rotate_point_z(planner.start_hover_poses[i], theta)))
-            waypoints.append(copy.deepcopy(rotate_point_z(planner.start_poses[i], theta)))
-            print("-- Moving to Pose#" + str(i+2) + " ---------------")
-            print("Goal pose:")
-            print(str(planner.start_poses[i].orientation))
-            planner.go_to_pose_goal_cartesian(waypoints)
+            waypoints.append(copy.deepcopy(planner.start_hover_poses[i]))
+            waypoints.append(copy.deepcopy(planner.start_poses[i]))
+            print("-- Moving to Pose#" + str(i+1) + " ---------------")
+            # print("Goal pose:")
+            # print(str(planner.start_poses[i].orientation))
+            planner.go_to_pose_goal_cartesian(waypoints, -90)
             waypoints = []
-            print("Real pose:")
-            print(str(planner.get_cartesian_pose().orientation))
+            # print("Real pose:")
+            # print(str(planner.get_cartesian_pose().orientation))
 
             # Execute the tool stroke
+            # input("============ Press `Enter` to continue")
             print("-- Executing DMP#" + str(i+1) + " -------------------#")
             t_s = time.time()
-            print("Goal pose:")
-            print(str(planner.end_poses[i].orientation))
+            # print("Goal pose:")
+            # print(str(planner.end_poses[i].orientation))
             planner.go_to_pose_goal_dmp(planner.start_poses[i], planner.end_poses[i], theta)
             waypoints = []
             t_e = time.time()
-            print("Real pose:")
-            print(str(planner.get_cartesian_pose().orientation))
-            print("-- DMP cpmplete, time elapsed: " + str(t_e-t_s) + " seconds")
+            # print("Real pose:")
+            # print(str(planner.get_cartesian_pose().orientation))
+            print("-- DMP complete, time elapsed: " + str(t_e-t_s) + " seconds")
             theta_list.append(math.degrees(theta))
 
-            waypoints.append(copy.deepcopy(rotate_point_z(planner.end_hover_poses[i], theta)))
-            planner.go_to_pose_goal_cartesian(waypoints)
+            waypoints.append(copy.deepcopy(planner.end_hover_poses[i]))
+            planner.go_to_pose_goal_cartesian(waypoints, -90)
 
         # Go to default pose
         #waypoints = []
@@ -333,10 +424,73 @@ def ready_callback (default_pose, planner):
         waypoints = []
         waypoints.append(copy.deepcopy(default_pose))
         print("-- Moving to Start")
-        planner.go_to_pose_goal_cartesian(waypoints)
+        planner.go_to_pose_goal_cartesian(waypoints, 0)
 
         print("-- Completed!")
         print(theta_list)
+
+def get_transformation_matrix(buffer, target_frame, source_frame):
+    try:
+        # Wait for the transform to become available
+        transform = buffer.lookup_transform(target_frame, source_frame, rospy.Time(0), rospy.Duration(4.0))
+        
+        # Extract translation and rotation
+        trans = transform.transform.translation
+        rot = transform.transform.rotation
+        
+        # Convert to a 4x4 transformation matrix
+        translation = np.array([trans.x, trans.y, trans.z])
+        rotation = np.array([rot.x, rot.y, rot.z, rot.w])
+        
+        # Construct the matrix
+        transform_matrix = np.dot(tft.translation_matrix(translation), tft.quaternion_matrix(rotation))
+        return transform_matrix
+    except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException) as e:
+        rospy.logerr(f"Could not find transformation: {e}")
+        return None
+    
+def apply_transformation_to_pose(matrix, pose):
+    """
+    Applies a 4x4 transformation matrix to a geometry_msgs.msg.Pose.
+
+    Args:
+        matrix (np.ndarray): A 4x4 transformation matrix.
+        pose (Pose): A ROS Pose object with position and orientation.
+
+    Returns:
+        Pose: A new Pose object with the transformed position and orientation.
+    """
+    # Convert Pose position to a homogeneous vector
+    position = np.array([pose.position.x, pose.position.y, pose.position.z, 1.0])
+    
+    # Apply the transformation matrix to the position
+    transformed_position = np.dot(matrix, position)
+
+    # Extract the quaternion from the pose
+    quaternion = [
+        pose.orientation.x,
+        pose.orientation.y,
+        pose.orientation.z,
+        pose.orientation.w
+    ]
+
+    # Apply the rotation part of the transformation matrix to the quaternion
+    rotation_matrix = matrix[:3, :3]  # Extract 3x3 rotation part
+    full_matrix = tft.quaternion_matrix(quaternion)  # Convert quaternion to 4x4 matrix
+    transformed_orientation_matrix = np.dot(matrix, full_matrix)  # Apply transformation
+    transformed_quaternion = tft.quaternion_from_matrix(transformed_orientation_matrix)
+
+    # Create a new Pose object with transformed position and orientation
+    transformed_pose = Pose()
+    transformed_pose.position.x = transformed_position[0]
+    transformed_pose.position.y = transformed_position[1]
+    transformed_pose.position.z = transformed_position[2]
+    transformed_pose.orientation.x = transformed_quaternion[0]
+    transformed_pose.orientation.y = transformed_quaternion[1]
+    transformed_pose.orientation.z = transformed_quaternion[2]
+    transformed_pose.orientation.w = transformed_quaternion[3]
+
+    return transformed_pose
 
 def euler_from_orientation(pose):
     quaternion = (
@@ -399,7 +553,7 @@ def rotate_point_z(pose, theta):
     new_pose = Pose()
     original_q = pose.orientation
     axis = (0, 0, 1)  # Rotate around Z-axis
-    angle = math.degrees(-theta)  # Degrees
+    angle = math.degrees(theta)  # Degrees
     new_pose.orientation = rotate_quaternion(original_q, axis, angle)
     new_pose.position = pose.position
     return new_pose
