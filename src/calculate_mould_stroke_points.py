@@ -684,9 +684,10 @@ def main():
     # sp_first_str = rospy.get_param("~sp_first", "0.57 -0.01875 0.5")  # Default is "0.7 0.0 0.0"
     # ep_last_str = rospy.get_param("~ep_last", "0.3 -0.063 0.5")  # Default is "0.2 -0.5 0.0"
 
-    ep_first_str = rospy.get_param("~ep_first", "-0.27 0.0315 0.0")  # Default is "0.2 0.0 0.0"
-    sp_first_str = rospy.get_param("~sp_first", "0.0 0.01275 0.0")  # Default is "0.7 0.0 0.0"
-    ep_last_str = rospy.get_param("~ep_last", "-0.27 -0.0315 0.0")  # Default is "0.2 -0.5 0.0"
+    ep_first_str = rospy.get_param("~ep_first", "-0.16 0.0315 0.0")  # Default is "-0.174 0.0315 0.0"
+    sp_first_str = rospy.get_param("~sp_first", "0.0 0.01275 0.0")  # Default is "0.0 0.01275 0.0"
+    ep_last_str = rospy.get_param("~ep_last", "-0.16 -0.0315 0.0")  # Default is "-0.174 -0.0315 0.0"
+    padding = 0.005
 
     # Truncate tool width to include overlap
     tool_width -= overlap
@@ -697,6 +698,10 @@ def main():
     ep_first = string_to_point(ep_first_str)
     sp_first = string_to_point(sp_first_str)
     ep_last = string_to_point(ep_last_str)
+
+    ep_first.y -= padding
+    sp_first.y -= padding
+    ep_first.y += padding
 
     # Calculate the diameter vector from ep_first to ep_last
     diameter_vector = vector_between_points(ep_first, ep_last)
@@ -769,7 +774,7 @@ def main():
     # roll_1, pitch_1, yaw_1 = tft.euler_from_quaternion(quaternion_1)
     
 
-    # Plot the start and end points on the cylinder
+    # # Plot the start and end points on the cylinder
     # plot_strokes_3d(
     #     ep_first, forward_vector, diameter_vector,
     #     convert_poses_to_points(end_poses_tf), convert_poses_to_points(start_poses_tf),

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import os
 import sys
 import csv
 import math
@@ -32,8 +33,9 @@ def makeLFDRequest(dims, traj, dt, K_gain, D_gain, num_bases):
     k_gains = [K_gain] * dims
     d_gains = [D_gain] * dims
 
-    # print("Starting LfD...")
+    print("Starting LfD...")
     rospy.wait_for_service('learn_dmp_from_demo')
+    print("...")
     try:
         lfd = rospy.ServiceProxy('learn_dmp_from_demo', LearnDMPFromDemo)
         resp = lfd(demotraj, k_gains, d_gains, num_bases)
@@ -91,6 +93,9 @@ class MotionPlanner(object):
                                                         moveit_msgs.msg.DisplayTrajectory,
                                                         queue_size=20)
 
+            self.arm_group.set_max_velocity_scaling_factor(0.5)  # 50% of max velocity
+            self.arm_group.set_max_acceleration_scaling_factor(0.5)  # 50% of max acceleration
+
             if self.is_gripper_present:
                 gripper_group_name = "gripper"
                 self.gripper_group = moveit_commander.MoveGroupCommander(gripper_group_name, ns=rospy.get_namespace())
@@ -108,8 +113,9 @@ class MotionPlanner(object):
         self.start_hover_poses = []
         self.end_hover_poses = []
         self.dmps = []
+        self.default_pose = None
 
-        self.publisher = rospy.Publisher('/mould', PointCloud2, queue_size=10)
+        self.publisher = rospy.Publisher('/mould_trace', PointCloud2, queue_size=10)
 
         tf_buffer = tf2_ros.Buffer()
         listener = tf2_ros.TransformListener(tf_buffer)
@@ -117,7 +123,7 @@ class MotionPlanner(object):
         source_frame = "world"
         
         self.tf_matrix = get_transformation_matrix(tf_buffer, target_frame, source_frame)
-        self.rotation = rospy.get_param("~rotation", 0.0)
+        self.rotation = rospy.get_param("~rotation", -90.0)
 
     def publish_pointcloud(self):
         """
@@ -142,24 +148,35 @@ class MotionPlanner(object):
         wps = []
         for waypoint in waypoints:
             wp = apply_transformation_to_pose(self.tf_matrix, waypoint)
-            original_q = wp.orientation
+            #original_q = wp.orientation
 
             wp = rotate_pose_around_z(wp, self.rotation + theta)
-            wp = rotate_pose_around_y(wp, 30)
-
-            wp.orientation = original_q
-            wps.append(wp)
+            wp = rotate_pose_around_x(wp, -45)
             p = wp.position
             self.dmps.append([p.x, p.y, p.z])
+            if(self.default_pose == None):
+                self.default_pose = wp
+            wp.orientation = self.default_pose.orientation
+            wp2 = translate_pose_local(wp, 0, -0.105, -0.041)
+            p2 = wp2.position
+            self.dmps.append([p2.x, p2.y, p2.z])
+
+            #wp.orientation = original_q
+            #avg = average_orientation(wp, self.default_pose)
+            #wp = average_orientation(avg, self.default_pose)
+            # wp = interpolate_pose(wp, self.default_pose, 0.03)
+            wps.append(wp2)
         
         (plan, fraction) = self.arm_group.compute_cartesian_path(
             wps, 0.01  # waypoints to follow  # eef_step
         )
+        rospy.sleep(0.1)
 
         self.publish_pointcloud()
         self.arm_group.execute(plan, wait=True)
 
     def go_to_pose_goal_dmp(self, start_pose, goal_pose, theta):
+        print("dmp: start")
         # Create a DMP from a 3-D trajectory
         dims = 3
         dt = 1.0
@@ -169,8 +186,10 @@ class MotionPlanner(object):
         traj = []
         # Read the file and process each line
         # Define the file path
-        file_path = "semicyl_painter/data/mould_filtered_path.csv"
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        file_path = os.path.join(base_dir, '../data/mould_filtered_path.csv')
 
+        print("dmp: reading traj...")
         # Read the CSV file and create a list of 3-member arrays
         with open(file_path, 'r') as csv_file:
             reader = csv.reader(csv_file)
@@ -185,18 +204,25 @@ class MotionPlanner(object):
 
         inv_traj = []
         for p in traj[::-1]:
-            tf_p = np.dot(self.tf_matrix[:3, :3], p)
+            tf_p = np.dot(self.tf_matrix[:3, :3].T, p)
             tf_pose = Pose()
             tf_pose.position.x = tf_p[0]
             tf_pose.position.y = tf_p[1]
             tf_pose.position.z = tf_p[2]
             tf_pose = apply_transformation_to_pose(self.tf_matrix, tf_pose)
+            # tf_pose = rotate_pose_around_z(tf_pose, self.rotation)
             inv_traj.append([tf_pose.position.x, tf_pose.position.y, tf_pose.position.z])
+
+        print("dmp: traj ready")
 
         resp = makeLFDRequest(dims, inv_traj, dt, K, D, num_bases)
 
+        print("...")
+
         # Set it as the active DMP
         makeSetActiveRequest(resp.dmp_list)
+
+        print("dmp: making plan...")
 
         # Now, generate a plan
         #x_0 = [0.0, 0.0, 0.0]           # Plan starting at a different point than demo
@@ -212,6 +238,8 @@ class MotionPlanner(object):
         goal_position = [goal_pose.position.x, goal_pose.position.y, goal_pose.position.z]
         plan = makePlanRequest(start_position, x_dot_0, t_0, goal_position, goal_thresh, seg_length, tau, dt, integrate_iter)
 
+        print("dmp: plan ready")
+
         waypoints = []
         for point in plan.plan.points:
             pose = Pose()
@@ -221,27 +249,52 @@ class MotionPlanner(object):
             #print(traj[0])
             pose.orientation = start_pose.orientation
 
-            # original_q = start_pose.orientation
-            # axis = (0, 0, 1)  # Rotate around Z-axis
-            # angle = math.degrees(theta)  # Degrees
-            # pose.orientation = rotate_quaternion(original_q, axis, angle)
-
-            # Tool offset
-            #original_q = start_pose.orientation
-            #axis = (1, 0, 0)  # Rotate around Y-axis
-            #angle = 90  # Degrees
-            #pose.orientation = rotate_quaternion(original_q, axis, angle)
-
             waypoints.append(pose)
+
+        print("dmp: executing...")
         
         self.go_to_pose_goal_cartesian(waypoints, -90)
 
-def rotate_pose_around_y(pose, angle_deg):
+def translate_pose_local(pose, dx, dy, dz):
+    """
+    Translates a pose by (dx, dy, dz) in its own local frame.
+
+    Args:
+        pose (Pose): The input pose to translate.
+        dx, dy, dz (float): Translation along the local x, y, and z axes.
+
+    Returns:
+        Pose: The translated pose.
+    """
+    # Extract position and orientation
+    position = pose.position
+    orientation = pose.orientation
+
+    # Convert quaternion to rotation matrix
+    quaternion = (orientation.x, orientation.y, orientation.z, orientation.w)
+    rotation_matrix = tft.quaternion_matrix(quaternion)
+
+    # Create a local translation vector
+    local_translation = [dx, dy, dz, 1.0]  # Homogeneous coordinates
+
+    # Transform the local translation to the global frame
+    global_translation = rotation_matrix.dot(local_translation)
+
+    # Update the pose's position
+    translated_pose = Pose()
+    translated_pose.orientation = pose.orientation  # Orientation remains the same
+    translated_pose.position.x = position.x + global_translation[0]
+    translated_pose.position.y = position.y + global_translation[1]
+    translated_pose.position.z = position.z + global_translation[2]
+
+    return translated_pose
+
+def rotate_pose_around_x(pose, angle_deg):
     # Convert angle from degrees to radians
     angle_rad = angle_deg * (3.141592653589793 / 180.0)
     
     # Create rotation quaternion for x-axis rotation
-    rotation_q = tft.quaternion_from_euler(0, angle_rad, 0, axes='sxyz')
+    rotation_q = tft.quaternion_from_euler(angle_rad, 0, 0, axes='sxyz')
 
     # Current orientation quaternion of the pose
     current_q = [
@@ -341,7 +394,7 @@ def end_hover_pose_callback(end_hover_pose, planner):
         planner.end_hover_poses.append(end_hover_pose)
 
 def ready_callback (default_pose, planner):
-        # input("============ Press `Enter` to initiate the motion planner")
+        input("============ Press `Enter` to initiate the motion planner")
 
         # print("-- Moving to End")
         # waypoints = []
@@ -389,7 +442,7 @@ def ready_callback (default_pose, planner):
             theta = start_angle + i * angle_step
 
             # Go to next start point
-            waypoints.append(copy.deepcopy(planner.start_hover_poses[i]))
+            waypoints.append(copy.deepcopy(default_pose))
             waypoints.append(copy.deepcopy(planner.start_poses[i]))
             print("-- Moving to Pose#" + str(i+1) + " ---------------")
             # print("Goal pose:")
@@ -412,6 +465,7 @@ def ready_callback (default_pose, planner):
             # print(str(planner.get_cartesian_pose().orientation))
             print("-- DMP complete, time elapsed: " + str(t_e-t_s) + " seconds")
             theta_list.append(math.degrees(theta))
+            # input("============ Press `Enter` to continue")
 
             waypoints.append(copy.deepcopy(planner.end_hover_poses[i]))
             planner.go_to_pose_goal_cartesian(waypoints, -90)
@@ -491,6 +545,37 @@ def apply_transformation_to_pose(matrix, pose):
     transformed_pose.orientation.w = transformed_quaternion[3]
 
     return transformed_pose
+
+def average_orientation(pose1, pose2):
+    """
+    Compute a pose with the average orientation of two given poses.
+
+    Args:
+        pose1 (Pose): The first input pose.
+        pose2 (Pose): The second input pose.
+
+    Returns:
+        Pose: A new pose with the average orientation of the two input poses.
+    """
+    # Extract quaternions from the two poses
+    q1 = (pose1.orientation.x, pose1.orientation.y, pose1.orientation.z, pose1.orientation.w)
+    q2 = (pose2.orientation.x, pose2.orientation.y, pose2.orientation.z, pose2.orientation.w)
+
+    # Perform Slerp to compute the average quaternion
+    average_quaternion = tft.quaternion_slerp(q1, q2, 0.5)
+
+    # Create a new pose with the averaged orientation
+    average_pose = Pose()
+    average_pose.position.x = (pose1.position.x + pose2.position.x) / 2.0
+    average_pose.position.y = (pose1.position.y + pose2.position.y) / 2.0
+    average_pose.position.z = (pose1.position.z + pose2.position.z) / 2.0
+
+    average_pose.orientation.x = average_quaternion[0]
+    average_pose.orientation.y = average_quaternion[1]
+    average_pose.orientation.z = average_quaternion[2]
+    average_pose.orientation.w = average_quaternion[3]
+
+    return average_pose
 
 def euler_from_orientation(pose):
     quaternion = (
@@ -573,6 +658,8 @@ def main():
 
     # ready_pub = rospy.Publisher('ready_pose', String, queue_size=10)
     # ready_pub.publish('msg')
+
+    print()
 
     # print("Published ready flag!")
 
