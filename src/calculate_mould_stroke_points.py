@@ -684,10 +684,10 @@ def main():
     # sp_first_str = rospy.get_param("~sp_first", "0.57 -0.01875 0.5")  # Default is "0.7 0.0 0.0"
     # ep_last_str = rospy.get_param("~ep_last", "0.3 -0.063 0.5")  # Default is "0.2 -0.5 0.0"
 
-    ep_first_str = rospy.get_param("~ep_first", "-0.16 0.0315 0.0")  # Default is "-0.174 0.0315 0.0"
+    ep_first_str = rospy.get_param("~ep_first", "-0.165 0.03 0.0")  # Default is "-0.16 0.0315 0.0"
     sp_first_str = rospy.get_param("~sp_first", "0.0 0.01275 0.0")  # Default is "0.0 0.01275 0.0"
-    ep_last_str = rospy.get_param("~ep_last", "-0.16 -0.0315 0.0")  # Default is "-0.174 -0.0315 0.0"
-    padding = 0.005
+    ep_last_str = rospy.get_param("~ep_last", "-0.165 -0.03 0.0")  # Default is "-0.16 -0.0315 0.0"
+    padding = 0.015
 
     # Truncate tool width to include overlap
     tool_width -= overlap

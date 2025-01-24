@@ -1,0 +1,27 @@
+<launch>
+    <arg name="robot_name" default="my_gen3"/>
+    <arg name="start_delay_seconds" default="1"/>
+
+    <!-- Include dmp launch file -->
+    <include file="$(find semicyl_painter)/launch/dmp.launch" ns="$(arg robot_name)" />
+
+    <!-- Launch tooltip publisher -->
+    <node name="tooltip_frame_publisher" pkg="semicyl_painter" type="calibrate_tooltip.py" ns="$(arg robot_name)" output="screen">
+        <param name="read_from_file" value="True" />
+    </node>
+
+    <!-- Launch mould publisher -->
+    <include file="$(find rf_loc)/launch/rf_point_loc.launch"/>
+
+    <!-- Launch the mould_painter node -->
+    <node pkg="semicyl_painter" type="mould_painter.py" name="mould_painter_node" ns="$(arg robot_name)" output="screen"  launch-prefix="bash -c 'sleep $(arg start_delay_seconds); $0 $@' "/>
+
+    <!-- Add obstacle to scene -->
+    <node pkg="semicyl_painter" type="add_obstacle.py" name="obstacle_node" ns="$(arg robot_name)" output="screen"/>
+
+    <!-- Launch the pose_finder node -->
+    <node pkg="semicyl_painter" type="calculate_mould_stroke_points.py" name="pose_publisher_node" ns="$(arg robot_name)" output="screen"  launch-prefix="bash -c 'sleep $(arg start_delay_seconds); $0 $@' ">
+        <param name="tool_width" value="0.01" />
+        <param name="tool_overlap" value="0.0" />
+    </node>
+</launch>

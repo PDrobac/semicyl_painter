@@ -8,11 +8,11 @@ project(semicyl_painter)
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
 find_package(catkin REQUIRED COMPONENTS
-  geometry_msgs
-  moveit_commander
-  moveit_msgs
-  rospy
-  tf
+  # geometry_msgs
+  # moveit_commander
+  # moveit_msgs
+  # rospy
+  # tf
 )
 
 ## System dependencies are found with CMake's conventions
