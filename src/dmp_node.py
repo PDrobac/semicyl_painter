@@ -87,11 +87,11 @@ def calculate_dmp(start_pose, goal_pose, theta):
             traj.append(mould_dims_rotated)
             orig.append(mould_dims_fixed)
 
-    pointcloud = P.create_pointcloud2(orig)
-    trace_publisher.publish(pointcloud)
-    input("...")
-    pointcloud = P.create_pointcloud2([])
-    trace_publisher.publish(pointcloud)
+    # pointcloud = P.create_pointcloud2(orig)
+    # trace_publisher.publish(pointcloud)
+    # input("...")
+    # pointcloud = P.create_pointcloud2([])
+    # trace_publisher.publish(pointcloud)
 
     resp = __makeLFDRequest(dims, traj[::-1], dt, K, D, num_bases)
 
@@ -118,6 +118,7 @@ def calculate_dmp(start_pose, goal_pose, theta):
         pose.position.x = point.positions[0]
         pose.position.y = point.positions[1]
         pose.position.z = point.positions[2]
+        pose.orientation = start_pose.orientation
         #print(traj[0])
 
         waypoints.append(pose)

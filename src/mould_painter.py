@@ -32,14 +32,12 @@ class MouldPainter(object):
         tf_pose = P.rotate_pose_about_axis(tf_pose, -90, 'z')
         tf_pose = P.rotate_pose_about_axis(tf_pose, -60, 'x')
 
-        waypoints = []
-        waypoints.append(tf_pose)
-        self.robot.go_to_pose_goal_cartesian(waypoints)
-
         p = [tf_pose.position.x, tf_pose.position.y, tf_pose.position.z]
         self.tip_trace.append(p)
         pointcloud = P.create_pointcloud2(self.tip_trace)
         self.trace_publisher.publish(pointcloud)
+
+        self.robot.go_to_pose_goal_cartesian([tf_pose])
 
     def robot_mould_goto_dmp(self, start_pose, end_pose, theta):
         start_pose = P.reset_pose_orientation(start_pose)
@@ -55,13 +53,14 @@ class MouldPainter(object):
         tf_end_pose = P.rotate_pose_about_axis(tf_end_pose, -60, 'x')
 
         waypoints = dmp.calculate_dmp(tf_start_pose, tf_end_pose, theta)
-        self.robot.go_to_pose_goal_cartesian(waypoints)
 
         for wp in waypoints:
             p = [wp.position.x, wp.position.y, wp.position.z]
             self.tip_trace.append(p)
-        pointcloud = P.create_pointcloud2(self.tip_trace)
-        self.trace_publisher.publish(pointcloud)
+            pointcloud = P.create_pointcloud2(self.tip_trace)
+            self.trace_publisher.publish(pointcloud)
+
+        self.robot.go_to_pose_goal_cartesian(waypoints, 0.05)
     
     def execute(self):
         input("\n============ Press `Enter` to initiate the mould painter\n")
@@ -100,7 +99,7 @@ class MouldPainter(object):
 
             # Go to next start point
             print("-- Moving to Pose#" + str(i+1) + " ---------------")
-            self.robot_mould_goto_pose(self.start_hover_poses[i])
+            self.robot_mould_goto_pose(self.default_pose)
             self.robot_mould_goto_pose(self.start_poses[i])
 
             # input("============ Press `Enter` to continue")

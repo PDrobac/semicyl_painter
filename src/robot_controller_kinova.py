@@ -7,6 +7,7 @@ import moveit_commander
 import moveit_msgs.msg
 import numpy as np
 import pose_conversions as P
+from trajectory_msgs.msg import JointTrajectory
 
 class MotionPlanner(object):
     """MotionPlanner"""
@@ -57,7 +58,7 @@ class MotionPlanner(object):
 
         return transformed_pose
     
-    def go_to_pose_goal_cartesian(self, waypoints):
+    def go_to_pose_goal_cartesian(self, waypoints, ts=-1):
         wps = []
         for waypoint in waypoints:
             T_to_tool = P.invert_tf(self.T_to_tip)
@@ -68,5 +69,8 @@ class MotionPlanner(object):
             wps, 0.01  # waypoints to follow  # eef_step
         )
         rospy.sleep(0.1)
+
+        if plan and ts > 0:
+            plan = P.fix_trajectory_timestamps(plan, 0.0, ts)
 
         self.arm_group.execute(plan, wait=True)

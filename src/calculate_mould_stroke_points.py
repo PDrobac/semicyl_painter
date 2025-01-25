@@ -7,6 +7,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import tf.transformations as tft
 import rospy
+import rospkg
 import tf2_ros
 from geometry_msgs.msg import Pose, Point, Quaternion
 from std_msgs.msg import String
@@ -506,7 +507,9 @@ def dmp_mould(start, goal, theta):
     traj = []
     # Read the file and process each line
     # Define the file path
-    file_path = "semicyl_painter/data/mould_filtered_path.csv"
+    rospack = rospkg.RosPack()
+    package_path = rospack.get_path('semicyl_painter')
+    file_path = f"{package_path}/data/mould_filtered_path.csv"
 
     # Read the CSV file and create a list of 3-member arrays
     with open(file_path, 'r') as csv_file:
@@ -687,7 +690,7 @@ def main():
     ep_first_str = rospy.get_param("~ep_first", "-0.165 0.03 0.0")  # Default is "-0.16 0.0315 0.0"
     sp_first_str = rospy.get_param("~sp_first", "0.0 0.01275 0.0")  # Default is "0.0 0.01275 0.0"
     ep_last_str = rospy.get_param("~ep_last", "-0.165 -0.03 0.0")  # Default is "-0.16 -0.0315 0.0"
-    padding = 0.015
+    padding = 0.0
 
     # Truncate tool width to include overlap
     tool_width -= overlap

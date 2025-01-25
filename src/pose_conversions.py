@@ -8,6 +8,7 @@ import tf.transformations as tft
 from geometry_msgs.msg import Pose
 from sensor_msgs.msg import PointCloud2, PointField
 from std_msgs.msg import Header
+from trajectory_msgs.msg import JointTrajectory
 
 def pose_to_matrix(pose: Pose):
     """
@@ -272,3 +273,25 @@ def get_tf_from_frames(target_frame, source_frame):
     except (tf2_ros.LookupException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException) as e:
         rospy.logerr(f"Could not find transformation: {e}")
         return None
+
+def fix_trajectory_timestamps(robot_trajectory: JointTrajectory, start_time=0.0, time_step=0.05):
+    """
+    Fixes the `time_from_start` field for a given RobotTrajectory message.
+    :param robot_trajectory: RobotTrajectory message from MoveIt
+    :param start_time: Initial time offset (default: 0.0 seconds)
+    :param time_step: Time increment between waypoints (default: 0.1 seconds)
+    :return: Fixed RobotTrajectory message
+    """
+    cumulative_time = start_time
+    # prev = rospy.Duration(start_time)
+
+    for point in robot_trajectory.joint_trajectory.points:
+        # Update time_from_start for each point
+        # curr = point.time_from_start
+        # if prev > curr:
+        #     curr += 2*(prev - curr)
+        # prev = curr
+        point.time_from_start = rospy.Duration(cumulative_time)
+        cumulative_time += time_step
+
+    return robot_trajectory
