@@ -68,7 +68,7 @@ def get_poses_from_robot(file_path):
 def main():
     rospy.init_node('tf2_mould_frame_calibrator')
     pub = rospy.Publisher('mould_pose_array', PoseArray, queue_size=10)
-    read_from_file = False
+    read_from_file = True
 
     collected_poses = []
 
@@ -100,7 +100,7 @@ def main():
         transform = TransformStamped()
         transform.header.stamp = rospy.Time.now()
         transform.header.frame_id = "base_link"
-        transform.child_frame_id = "tooltip_cartesian"
+        transform.child_frame_id = "mould"
         transform.transform.translation = planner.get_cartesian_pose().position
         transform.transform.rotation = planner.get_cartesian_pose().orientation
 

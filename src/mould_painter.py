@@ -32,6 +32,9 @@ class MouldPainter(object):
         tf_pose = P.rotate_pose_about_axis(tf_pose, -90, 'z')
         tf_pose = P.rotate_pose_about_axis(tf_pose, -60, 'x')
 
+        tf = P.offset_transform(tf_pose, self.tf_default_pose, 0.01)
+        tf_pose = P.apply_transform_to_pose_position(tf_pose, tf)
+
         p = [tf_pose.position.x, tf_pose.position.y, tf_pose.position.z]
         self.tip_trace.append(p)
         pointcloud = P.create_pointcloud2(self.tip_trace)
@@ -58,18 +61,15 @@ class MouldPainter(object):
         offset_waypoints = []
 
         for wp in waypoints:
-            # p = [wp.position.x, wp.position.y, wp.position.z]
-            # self.tip_trace.append(p)
-
             offset_wp = P.apply_transform_to_pose_position(wp, tf)
             offset_waypoints.append(offset_wp)
 
             p = [offset_wp.position.x, offset_wp.position.y, offset_wp.position.z]
             self.tip_trace.append(p)
-            pointcloud = P.create_pointcloud2(self.tip_trace)
+            pointcloud = P.create_pointcloud2(self.tip_trace, "base_link")
             self.trace_publisher.publish(pointcloud)
 
-        self.robot.go_to_pose_goal_cartesian(offset_waypoints, 0.05)
+        self.robot.go_to_pose_goal_cartesian(offset_waypoints, 0.03)
     
     def execute(self):
         input("\n============ Press `Enter` to initiate the mould painter\n")
@@ -102,13 +102,12 @@ class MouldPainter(object):
         angle_step = pitch_1 - pitch_0
         theta_list = []
 
+        # print("####### angle list: ")
+        # for sp in self.start_poses:
+        #     roll, pitch, yaw = P.get_euler_from_pose(sp)
+        #     print(str(math.degrees(pitch)))
 
-        print("####### angle list: " + str(math.degrees(start_angle)))
-        for sp in self.start_poses:
-            roll, pitch, yaw = P.get_euler_from_pose(sp)
-            print(str(math.degrees(pitch)))
-
-        print("#######")
+        # print("#######")
              
         # print("####### second angle: " + str(math.degrees(pitch_1)))
         # print("####### angle step: " + str(math.degrees(angle_step)))
@@ -121,7 +120,7 @@ class MouldPainter(object):
             # Go to next start point
             print("-- Moving to Pose#" + str(i+1) + " ---------------")
             self.robot_mould_goto_pose(self.default_pose)
-            # self.robot_mould_goto_pose(self.start_poses[i])
+            self.robot_mould_goto_pose(self.start_poses[i])
 
             # input("============ Press `Enter` to continue")
 

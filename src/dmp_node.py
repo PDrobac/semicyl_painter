@@ -57,23 +57,11 @@ def __makePlanRequest(x_0, x_dot_0, t_0, goal, goal_thresh, seg_length, tau, dt,
 
     return resp
 
-# TODO add T_mould, fix orientation
-def calculate_dmp(start_pose, goal_pose, theta):
-    # Create a DMP from a 3-D trajectory
-    dims = 3
-    dt = 1.0
-    K = 100
-    D = 2.0 * np.sqrt(K)
-    num_bases = 4
+def get_filtered_mould_path(theta):
     traj = []
-    orig = []
-    # Read the file and process each line
-    # Open a file to save or read the poses
     rospack = rospkg.RosPack()
     package_path = rospack.get_path('semicyl_painter')
     file_path = f"{package_path}/data/mould_filtered_path.csv"
-
-    trace_publisher = rospy.Publisher('/dmp_trace', PointCloud2, queue_size=10)
 
     # Read the CSV file and create a list of 3-member arrays
     with open(file_path, 'r') as csv_file:
@@ -85,15 +73,51 @@ def calculate_dmp(start_pose, goal_pose, theta):
                                 mould_dims_fixed[1] * math.cos(theta) + mould_dims_fixed[2] * math.sin(theta),
                                 mould_dims_fixed[2] * math.cos(theta) - mould_dims_fixed[1] * math.sin(theta)]
             traj.append(mould_dims_rotated)
-            orig.append(mould_dims_fixed)
+    
+    return traj[::-1]
 
-    # pointcloud = P.create_pointcloud2(orig)
-    # trace_publisher.publish(pointcloud)
-    # input("...")
-    # pointcloud = P.create_pointcloud2([])
-    # trace_publisher.publish(pointcloud)
+def get_filtered_stroke_path(T_mould, theta):
+    traj = []
+    rospack = rospkg.RosPack()
+    package_path = rospack.get_path('semicyl_painter')
+    file_path = f"{package_path}/data/stroke_recorded.csv"
 
-    resp = __makeLFDRequest(dims, traj[::-1], dt, K, D, num_bases)
+    # trace_publisher = rospy.Publisher('/stroke_example', PointCloud2, queue_size=10)
+    # theta = 0
+
+    # Read the CSV file and create a list of 3-member arrays
+    with open(file_path, 'r') as csv_file:
+        reader = csv.reader(csv_file)
+        for row in reader:
+            mould_dims = [float(value) for value in row]
+            # mould_dims_fixed = [mould_dims[2], mould_dims[0], mould_dims[1]]
+            mould_dims_fixed = [mould_dims[2], 0, mould_dims[1]]
+            homogeneous_point = np.array([mould_dims_fixed[0], mould_dims_fixed[1], mould_dims_fixed[2], 1])
+            transformed_homogeneous_point = np.dot(T_mould, homogeneous_point)
+            mould_dims_fixed = transformed_homogeneous_point[:3]
+
+            mould_dims_rotated = [mould_dims_fixed[0],
+                                mould_dims_fixed[1] * math.cos(theta) + mould_dims_fixed[2] * math.sin(theta),
+                                mould_dims_fixed[2] * math.cos(theta) - mould_dims_fixed[1] * math.sin(theta)]
+            traj.append(mould_dims_rotated)
+    
+    # pointcloud = P.create_pointcloud2(traj)
+    # trace_publisher.publish(pointcloud)
+    
+    return traj
+
+def calculate_dmp(start_pose, goal_pose, theta):
+    T_mould = P.get_tf_from_frames("base_link", "mould")
+
+    # Create a DMP from a 3-D trajectory
+    dims = 3
+    dt = 1.0
+    K = 100
+    D = 2.0 * np.sqrt(K)
+    num_bases = 4
+    traj = get_filtered_stroke_path(T_mould, theta)
+
+    resp = __makeLFDRequest(dims, traj, dt, K, D, num_bases)
 
     # Set it as the active DMP
     __makeSetActiveRequest(resp.dmp_list)
