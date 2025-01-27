@@ -3,9 +3,10 @@
 import struct
 import rospy
 import tf2_ros
+import math
 import numpy as np
 import tf.transformations as tft
-from geometry_msgs.msg import Pose
+from geometry_msgs.msg import Pose, Transform
 from sensor_msgs.msg import PointCloud2, PointField
 from std_msgs.msg import Header
 from trajectory_msgs.msg import JointTrajectory
@@ -178,6 +179,86 @@ def reset_pose_orientation(pose: Pose):
     new_pose.position = pose.position
 
     return new_pose
+
+def offset_transform(orig_pose: Pose, default_pose: Pose, distance: float):
+    """
+    Interpolates between orig_pose and default_pose at a distance d away from orig_pose
+    while retaining the orientation of orig_pose.
+    
+    Args:
+        orig_pose (Pose): The input pose to interpolate from.
+        default_pose (Pose): The default pose to interpolate to.
+        distance(float): Distance from the original pose to interpolated pose.
+
+    Returns:
+        Transform: Interpolated transform.
+    """
+    # Extract positions
+    x1, y1, z1 = orig_pose.position.x, orig_pose.position.y, orig_pose.position.z
+    x2, y2, z2 = default_pose.position.x, default_pose.position.y, default_pose.position.z
+    
+    # Compute the direction vector from orig_pose to default_pose
+    dx = x2 - x1
+    dy = y2 - y1
+    dz = z2 - z1
+    total_distance = math.sqrt(dx**2 + dy**2 + dz**2)
+    
+    # Handle the case where orig_pose and default_pose are the same
+    if total_distance == 0:
+        rospy.logwarn("orig_pose and default_pose are identical. Returning identity transform.")
+        transform = Transform()
+        transform.translation.x = 0.0
+        transform.translation.y = 0.0
+        transform.translation.z = 0.0
+        transform.rotation = orig_pose.orientation
+        return transform
+    
+    # Normalize the direction vector
+    unit_dx = dx / total_distance
+    unit_dy = dy / total_distance
+    unit_dz = dz / total_distance
+    
+    # Calculate the translation for the transform
+    transform = Transform()
+    transform.translation.x = unit_dx * distance
+    transform.translation.y = unit_dy * distance
+    transform.translation.z = unit_dz * distance
+    
+    # Retain the orientation of orig_pose
+    transform.rotation = orig_pose.orientation
+    
+    return transform
+
+def apply_transform_to_pose_position(pose: Pose, transform: Transform):
+    """
+    Apply a Transform to a Pose while keeping the original orientation.
+    
+    Args:
+        pose (Pose): Pose to be transformed.
+        transform (Transform): Transform to be applied.
+
+    Returns:
+        transformed_pose (Pose): Transformed pose.
+    """
+    # Extract position from the pose
+    px, py, pz = pose.position.x, pose.position.y, pose.position.z
+    
+    # Extract translation from the transform
+    tx, ty, tz = transform.translation.x, transform.translation.y, transform.translation.z
+    
+    # Apply translation to the position
+    transformed_position_x = px + tx
+    transformed_position_y = py + ty
+    transformed_position_z = pz + tz
+    
+    # Construct the transformed pose
+    transformed_pose = Pose()
+    transformed_pose.position.x = transformed_position_x
+    transformed_pose.position.y = transformed_position_y
+    transformed_pose.position.z = transformed_position_z
+    transformed_pose.orientation = pose.orientation
+    
+    return transformed_pose
 
 
 def invert_tf(matrix: np.ndarray):
