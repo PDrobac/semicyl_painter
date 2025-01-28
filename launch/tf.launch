@@ -2,9 +2,9 @@
   <node pkg="tf2_ros" type="static_transform_publisher" name="world_kinova_broadcaster" 
   args = "0 0 0 0 0 0 1 world base_link" output="screen">
   </node>
-  <node pkg="tf2_ros" type="static_transform_publisher" name="sand_kinova_broadcaster" 
+  <!-- <node pkg="tf2_ros" type="static_transform_publisher" name="sand_kinova_broadcaster" 
   args = "0 0.105 0.041 0 0 0 1 tool_frame tooltip_sand" output="screen">
-  </node>
+  </node> -->
 
   <!-- <node pkg="tf2_ros" type="static_transform_publisher" name="world_mould_broadcaster" 
   args = "-0.5 0 0.5 0 0 1 0 mould world" output="screen"> -->
@@ -12,9 +12,9 @@
   args = "0.7411491584436108 -0.021438443363448193 0.3217973856557104
   -0.01716553405884247 -0.11709974368670659 -0.012015712796567372 0.9928990971468213
   mould world" output="screen"> -->
-  <node pkg="tf2_ros" type="static_transform_publisher" name="world_mould_broadcaster" 
-  args = "0.6999791018677866 -0.05268312774757231 0.20514361184366176
-  -0.0030493221539501097 -0.03345109517952503 -0.03995185901351791 0.9986368583359297
+  <!-- <node pkg="tf2_ros" type="static_transform_publisher" name="world_mould_broadcaster" 
+  args = "0.6993025173440536 -0.02433115128417389 0.25613511566356385
+  -0.0030844028452941107 -0.037005226038577116 -0.006889640755863908 0.9965173875764995
   mould world" output="screen">
-  </node>
+  </node> -->
 </launch>

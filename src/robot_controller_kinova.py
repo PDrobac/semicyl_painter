@@ -7,7 +7,6 @@ import moveit_commander
 import moveit_msgs.msg
 import numpy as np
 import pose_conversions as P
-from trajectory_msgs.msg import JointTrajectory
 
 class MotionPlanner(object):
     """MotionPlanner"""
@@ -33,6 +32,9 @@ class MotionPlanner(object):
             self.display_trajectory_publisher = rospy.Publisher(rospy.get_namespace() + 'move_group/display_planned_path',
                                                         moveit_msgs.msg.DisplayTrajectory,
                                                         queue_size=20)
+            
+            self.arm_group.set_max_velocity_scaling_factor(0.75)  # 75% of max velocity
+            self.arm_group.set_max_acceleration_scaling_factor(0.75)  # 75% of max acceleration
 
             if self.is_gripper_present:
                 gripper_group_name = "gripper"
@@ -63,14 +65,44 @@ class MotionPlanner(object):
         for waypoint in waypoints:
             T_to_tool = P.invert_tf(self.T_to_tip)
             wp = P.apply_local_tf_to_pose(waypoint, T_to_tool)
+            # wp.position.z += 0.005
             wps.append(wp)
         
         (plan, fraction) = self.arm_group.compute_cartesian_path(
             wps, 0.01  # waypoints to follow  # eef_step
         )
+
+        if plan:
+            if ts > 0:
+                plan = P.fix_trajectory_timestamps(plan, 0.0, ts)
+
         rospy.sleep(0.1)
+        success = self.arm_group.execute(plan, wait=True)
 
-        if plan and ts > 0:
-            plan = P.fix_trajectory_timestamps(plan, 0.0, ts)
+        velocity_scaling_factor = 1.0
 
-        self.arm_group.execute(plan, wait=True)
+        # Execute the plan and wait for it to complete
+        while not success:
+            rospy.sleep(1.0)
+            # Ensure the arm stops completely to avoid residual movement
+            self.arm_group.stop()
+
+            # Clear any targets to avoid interference with future plans
+            self.arm_group.clear_pose_targets()
+            rospy.sleep(1.0)
+
+            if velocity_scaling_factor > 0.3:
+                (plan, fraction) = self.arm_group.compute_cartesian_path(
+                    wps, 0.01  # waypoints to follow  # eef_step
+                )
+            else:
+                # Halve the velocity scaling factor
+                velocity_scaling_factor *= 0.75
+                rospy.logwarn(f"Execution failed. Reducing velocity scaling to {velocity_scaling_factor}")
+
+                # Modify the plan's trajectory using the scaling factor
+                for point in plan.joint_trajectory.points:
+                    point.time_from_start = point.time_from_start / velocity_scaling_factor
+
+            rospy.sleep(0.1)
+            success = self.arm_group.execute(plan, wait=True)

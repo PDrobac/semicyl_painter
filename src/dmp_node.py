@@ -76,7 +76,7 @@ def get_filtered_mould_path(theta):
     
     return traj[::-1]
 
-def get_filtered_stroke_path(T_mould, theta):
+def get_filtered_stroke_path(start_pose, goal_pose, T_mould, theta):
     traj = []
     rospack = rospkg.RosPack()
     package_path = rospack.get_path('semicyl_painter')
@@ -88,7 +88,13 @@ def get_filtered_stroke_path(T_mould, theta):
     # Read the CSV file and create a list of 3-member arrays
     with open(file_path, 'r') as csv_file:
         reader = csv.reader(csv_file)
+        cnt = 0
         for row in reader:
+            if(cnt < 2):
+                cnt += 1
+                continue
+            cnt = 0
+
             mould_dims = [float(value) for value in row]
             # mould_dims_fixed = [mould_dims[2], mould_dims[0], mould_dims[1]]
             mould_dims_fixed = [mould_dims[2], 0, mould_dims[1]]
@@ -103,6 +109,28 @@ def get_filtered_stroke_path(T_mould, theta):
     
     # pointcloud = P.create_pointcloud2(traj)
     # trace_publisher.publish(pointcloud)
+
+    # Smooth traj using a moving average
+    smoothed_traj = []
+    window_size = 3  # Define the window size for smoothing
+    half_window = window_size // 2
+
+    for i in range(len(traj)):
+        x_sum, y_sum, z_sum = 0, 0, 0
+        count = 0
+
+        # Compute the average within the window
+        for j in range(max(0, i - half_window), min(len(traj), i + half_window + 1)):
+            x_sum += traj[j][0]
+            y_sum += traj[j][1]
+            z_sum += traj[j][2]
+            count += 1
+
+        smoothed_traj.append([
+            x_sum / count,
+            y_sum / count,
+            z_sum / count
+        ])
     
     return traj
 
@@ -115,7 +143,7 @@ def calculate_dmp(start_pose, goal_pose, theta):
     K = 100
     D = 2.0 * np.sqrt(K)
     num_bases = 4
-    traj = get_filtered_stroke_path(T_mould, theta)
+    traj = get_filtered_stroke_path(start_pose, goal_pose, T_mould, theta)
 
     resp = __makeLFDRequest(dims, traj, dt, K, D, num_bases)
 

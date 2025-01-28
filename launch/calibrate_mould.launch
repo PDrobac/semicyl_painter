@@ -2,9 +2,15 @@
 
     <!-- Robot namespace -->
     <arg name="robot_name" default="my_gen3"/>
-    <arg name="start_delay_seconds" default="0"/>
+    <arg name="read_from_file" default="False"/>
+    <arg name="start_delay_seconds" default="1"/>
 
-    <!-- Launch the example in that namespace -->
-    <node name="frame_publisher" pkg="semicyl_painter" type="calibrate_mould.py" ns="$(arg robot_name)" output="screen" launch-prefix="bash -c 'sleep $(arg start_delay_seconds); $0 $@' "/>
+    <!-- Launch mould publisher -->
+    <!-- <include file="$(find rf_loc)/launch/rf_point_loc.launch"/> -->
+
+    <!-- Launch mould calibration in that namespace -->
+    <node pkg="semicyl_painter" type="calibrate_mould.py" name="mould_calibration" ns="$(arg robot_name)" output="screen" launch-prefix="bash -c 'sleep $(arg start_delay_seconds); $0 $@' ">
+        <param name="read_from_file" value="$(arg read_from_file)"/>
+    </node>
 
 </launch>

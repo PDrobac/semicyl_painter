@@ -25,15 +25,14 @@ class MouldPainter(object):
         self.tip_trace = []
         self.trace_publisher = rospy.Publisher('/tip_trace', PointCloud2, queue_size=10)
 
-    def robot_mould_goto_pose(self, pose):
+    def robot_mould_goto_pose(self, pose, theta=0):
         pose = P.reset_pose_orientation(pose)
         tf_pose = P.apply_global_tf_to_pose(pose, self.T_mould)
         tf_pose = P.rotate_pose_about_axis(tf_pose, 90, 'y')
         tf_pose = P.rotate_pose_about_axis(tf_pose, -90, 'z')
-        tf_pose = P.rotate_pose_about_axis(tf_pose, -60, 'x')
-
-        tf = P.offset_transform(tf_pose, self.tf_default_pose, 0.01)
-        tf_pose = P.apply_transform_to_pose_position(tf_pose, tf)
+        tf_pose = P.rotate_pose_about_axis(tf_pose, -45, 'x')
+        
+        tf_pose = P.pose_brush_padding(tf_pose, math.degrees(theta), 0.01)
 
         p = [tf_pose.position.x, tf_pose.position.y, tf_pose.position.z]
         self.tip_trace.append(p)
@@ -47,29 +46,25 @@ class MouldPainter(object):
         tf_start_pose = P.apply_global_tf_to_pose(start_pose, self.T_mould)
         tf_start_pose = P.rotate_pose_about_axis(tf_start_pose, 90, 'y')
         tf_start_pose = P.rotate_pose_about_axis(tf_start_pose, -90, 'z')
-        tf_start_pose = P.rotate_pose_about_axis(tf_start_pose, -60, 'x')
-
-        tf = P.offset_transform(tf_start_pose, self.tf_default_pose, 0.01)
+        tf_start_pose = P.rotate_pose_about_axis(tf_start_pose, -45, 'x')
+        tf_start_pose = P.pose_brush_padding(tf_start_pose, math.degrees(theta), 0.01)
 
         end_pose = P.reset_pose_orientation(end_pose)
         tf_end_pose = P.apply_global_tf_to_pose(end_pose, self.T_mould)
         tf_end_pose = P.rotate_pose_about_axis(tf_end_pose, 90, 'y')
         tf_end_pose = P.rotate_pose_about_axis(tf_end_pose, -90, 'z')
-        tf_end_pose = P.rotate_pose_about_axis(tf_end_pose, -60, 'x')
+        tf_end_pose = P.rotate_pose_about_axis(tf_end_pose, -45, 'x')
+        tf_end_pose = P.pose_brush_padding(tf_end_pose, math.degrees(theta), 0.01)
 
         waypoints = dmp.calculate_dmp(tf_start_pose, tf_end_pose, theta)
-        offset_waypoints = []
 
         for wp in waypoints:
-            offset_wp = P.apply_transform_to_pose_position(wp, tf)
-            offset_waypoints.append(offset_wp)
-
-            p = [offset_wp.position.x, offset_wp.position.y, offset_wp.position.z]
+            p = [wp.position.x, wp.position.y, wp.position.z]
             self.tip_trace.append(p)
             pointcloud = P.create_pointcloud2(self.tip_trace, "base_link")
             self.trace_publisher.publish(pointcloud)
 
-        self.robot.go_to_pose_goal_cartesian(offset_waypoints, 0.03)
+        self.robot.go_to_pose_goal_cartesian(waypoints)
     
     def execute(self):
         input("\n============ Press `Enter` to initiate the mould painter\n")
@@ -120,7 +115,7 @@ class MouldPainter(object):
             # Go to next start point
             print("-- Moving to Pose#" + str(i+1) + " ---------------")
             self.robot_mould_goto_pose(self.default_pose)
-            self.robot_mould_goto_pose(self.start_poses[i])
+            self.robot_mould_goto_pose(self.start_poses[i], theta)
 
             # input("============ Press `Enter` to continue")
 

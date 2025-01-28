@@ -68,7 +68,7 @@ def get_poses_from_robot(file_path):
 def main():
     rospy.init_node('tf2_mould_frame_calibrator')
     pub = rospy.Publisher('mould_pose_array', PoseArray, queue_size=10)
-    read_from_file = True
+    read_from_file = rospy.get_param("~read_from_file", True)
 
     collected_poses = []
 
@@ -89,25 +89,8 @@ def main():
     pose_array.poses = collected_poses        # Add all poses to the PoseArray
 
     # Publish poses
+    print("Publishing poses")
     pub.publish(pose_array)
-
-    rate = rospy.Rate(10)
-    broadcaster = TransformBroadcaster()
-    planner = rc.MotionPlanner()
-
-    while not rospy.is_shutdown():
-        # Create TransformStamped message
-        transform = TransformStamped()
-        transform.header.stamp = rospy.Time.now()
-        transform.header.frame_id = "base_link"
-        transform.child_frame_id = "mould"
-        transform.transform.translation = planner.get_cartesian_pose().position
-        transform.transform.rotation = planner.get_cartesian_pose().orientation
-
-        # Publish the transform
-        broadcaster.sendTransform(transform)
-        rate.sleep()
-    rospy.spin()
 
 if __name__ == "__main__":
     main()

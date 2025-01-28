@@ -180,55 +180,6 @@ def reset_pose_orientation(pose: Pose):
 
     return new_pose
 
-def offset_transform(orig_pose: Pose, default_pose: Pose, distance: float):
-    """
-    Interpolates between orig_pose and default_pose at a distance d away from orig_pose
-    while retaining the orientation of orig_pose.
-    
-    Args:
-        orig_pose (Pose): The input pose to interpolate from.
-        default_pose (Pose): The default pose to interpolate to.
-        distance(float): Distance from the original pose to interpolated pose.
-
-    Returns:
-        Transform: Interpolated transform.
-    """
-    # Extract positions
-    x1, y1, z1 = orig_pose.position.x, orig_pose.position.y, orig_pose.position.z
-    x2, y2, z2 = default_pose.position.x, default_pose.position.y, default_pose.position.z
-    
-    # Compute the direction vector from orig_pose to default_pose
-    dx = x2 - x1
-    dy = y2 - y1
-    dz = z2 - z1
-    total_distance = math.sqrt(dx**2 + dy**2 + dz**2)
-    
-    # Handle the case where orig_pose and default_pose are the same
-    if total_distance == 0:
-        rospy.logwarn("orig_pose and default_pose are identical. Returning identity transform.")
-        transform = Transform()
-        transform.translation.x = 0.0
-        transform.translation.y = 0.0
-        transform.translation.z = 0.0
-        transform.rotation = orig_pose.orientation
-        return transform
-    
-    # Normalize the direction vector
-    unit_dx = dx / total_distance
-    unit_dy = dy / total_distance
-    unit_dz = dz / total_distance
-    
-    # Calculate the translation for the transform
-    transform = Transform()
-    transform.translation.x = unit_dx * distance
-    transform.translation.y = unit_dy * distance
-    transform.translation.z = unit_dz * distance
-    
-    # Retain the orientation of orig_pose
-    transform.rotation = orig_pose.orientation
-    
-    return transform
-
 def apply_transform_to_pose_position(pose: Pose, transform: Transform):
     """
     Apply a Transform to a Pose while keeping the original orientation.
@@ -259,6 +210,30 @@ def apply_transform_to_pose_position(pose: Pose, transform: Transform):
     transformed_pose.orientation = pose.orientation
     
     return transformed_pose
+
+def pose_brush_padding(pose: Pose, theta: float, padding: float):
+    """
+    Translate a pose in the local YZ plane by -theta degrees and apply padding.
+    
+    :param pose: The original Pose object to be transformed.
+    :param theta: The angle (in degrees) to rotate the pose around the X-axis.
+    :param padding: The padding distance to apply in the local YZ plane after rotation.
+    :return: A new Pose with the translated and rotated position.
+    """
+    # Convert theta from degrees to radians
+    theta_rad = math.radians(theta)
+    
+    # Apply the rotation matrix to the ZX plane
+    # Rotation only affects the X and Z positions in this case
+    z_offset = padding * math.cos(theta_rad)
+    x_offset = padding * math.sin(theta_rad)
+
+    T_brush = np.eye(4, 4)
+    T_brush[0,3] = -x_offset
+    T_brush[2,3] = -z_offset
+
+    # Apply padding to the YZ translation
+    return apply_local_tf_to_pose(pose, T_brush)
 
 
 def invert_tf(matrix: np.ndarray):
@@ -292,7 +267,7 @@ def invert_tf(matrix: np.ndarray):
 
     return inverted_matrix
 
-def create_pointcloud2(points: list, frame_id="world"):
+def create_pointcloud2(points: list, frame_id="base_link"):
     """
     Create a PointCloud2 message from a list of 3D points.
     
