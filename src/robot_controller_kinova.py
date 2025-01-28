@@ -91,13 +91,14 @@ class MotionPlanner(object):
             self.arm_group.clear_pose_targets()
             rospy.sleep(1.0)
 
-            if velocity_scaling_factor > 0.3:
+            if velocity_scaling_factor <= 0.5:
+                velocity_scaling_factor = 1.0
                 (plan, fraction) = self.arm_group.compute_cartesian_path(
                     wps, 0.01  # waypoints to follow  # eef_step
                 )
             else:
-                # Halve the velocity scaling factor
-                velocity_scaling_factor *= 0.75
+                # Reduce the velocity scaling factor
+                velocity_scaling_factor -= 0.25
                 rospy.logwarn(f"Execution failed. Reducing velocity scaling to {velocity_scaling_factor}")
 
                 # Modify the plan's trajectory using the scaling factor
