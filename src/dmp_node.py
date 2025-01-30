@@ -6,7 +6,6 @@ import rospy
 import rospkg
 import numpy as np
 from geometry_msgs.msg import Pose
-from sensor_msgs.msg import PointCloud2
 import pose_conversions as P
 from dmp.srv import *
 from dmp.msg import *
@@ -76,7 +75,7 @@ def get_filtered_mould_path(theta):
     
     return traj[::-1]
 
-def get_filtered_stroke_path(start_pose, goal_pose, T_mould, theta):
+def get_filtered_stroke_path(T_mould, theta):
     traj = []
     rospack = rospkg.RosPack()
     package_path = rospack.get_path('semicyl_painter')
@@ -143,7 +142,7 @@ def calculate_dmp(start_pose, goal_pose, theta):
     K = 100
     D = 2.0 * np.sqrt(K)
     num_bases = 4
-    traj = get_filtered_stroke_path(start_pose, goal_pose, T_mould, theta)
+    traj = get_filtered_stroke_path(T_mould, theta)
 
     resp = __makeLFDRequest(dims, traj, dt, K, D, num_bases)
 
