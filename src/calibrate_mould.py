@@ -90,7 +90,9 @@ def main():
 
     # Publish poses
     print("Publishing poses")
-    pub.publish(pose_array)
+    while True:
+        pub.publish(pose_array)
+        rospy.sleep(10)
 
 if __name__ == "__main__":
     main()

@@ -93,7 +93,7 @@ void learnFromDemo(const DMPTraj &demo,
 	double *f_targets = new double[n_pts];
 	FunctionApprox *f_approx = new LinearApprox();
 
-	double max_v_demo = 0.0;
+	double max_v_demo[dims] = {0.0};
 
 	//Compute the DMP weights for each DOF separately
 	for(int d=0; d<dims; d++){
@@ -113,8 +113,8 @@ void learnFromDemo(const DMPTraj &demo,
 			v_demo[i] = dx/dt;
 			v_dot_demo[i] = (v_demo[i] - v_demo[i-1]) / dt;
 
-			if(abs(v_demo[i]) > max_v_demo){
-				max_v_demo = abs(v_demo[i]);
+			if(abs(v_demo[i]) > max_v_demo[d]){
+				max_v_demo[d] = abs(v_demo[i]);
 			}
 		}
 
@@ -141,8 +141,8 @@ void learnFromDemo(const DMPTraj &demo,
 		dmp_list.push_back(*curr_dmp);
 
 		dmp_train_goal.push_back(goal - x_0);
-		dmp_train_velocity.push_back(max_v_demo);
-		std::cout << d+1 << ". velocity is: " << max_v_demo << std::endl;
+		dmp_train_velocity.push_back(max_v_demo[d]);
+		std::cout << d+1 << ". velocity is: " << max_v_demo[d] << std::endl;
 
 	}
 
@@ -222,6 +222,7 @@ void generatePlan(const vector<DMPData> &dmp_list,
 		if(seg_length > 0){
 			if (t > seg_length) seg_end = true;
 		}
+		double scale = 1.0;
 
 		//Plan in each dimension
 		for(int i=0; i<dims; i++){
@@ -261,7 +262,8 @@ void generatePlan(const vector<DMPData> &dmp_list,
 			}
 
 			double curr_v = v/tau;
-			if(abs(curr_v) > abs(max_v[i])){
+			if(abs(curr_v) > 1*abs(max_v[i])) {
+			std::cout << "OVERSHOOT" << std::endl;
 				if(t < 2.0){
 					std::cout << std::setw(4) << std::fixed << std::setprecision(1) << t << " | ";
 					std::cout.unsetf(std::ios::fixed | std::ios::scientific); // Remove fixed/scientific flags
@@ -269,6 +271,12 @@ void generatePlan(const vector<DMPData> &dmp_list,
 					std::cout.width(0);                                       // Reset width to default
 					std::cout << i+1 << ". velocity overshoot: " << curr_v << std::endl;
 				}
+
+
+				if(scale > abs(max_v[i] / curr_v)) {
+					scale = abs(max_v[i] / curr_v);
+				}
+				std::cout << "    scale= " << scale << std::endl;
 				// if(t < 1.0){
 				// 	std::cout << "    x would be: " << x << std::endl;
 				// }
@@ -276,7 +284,7 @@ void generatePlan(const vector<DMPData> &dmp_list,
 				// double x_temp_2 = x_old + curr_v * dt;
 				// x = x * (x_temp_1 / x_temp_2);
 				// x = x_old + curr_v;
-				curr_v = max_v[i];
+				curr_v = 1*max_v[i] * (v/tau)/abs(v/tau);
 				if(t < 2.0){
 					//std::cout << "    x_old= " << x_old << std::endl;
 					//std::cout << "    curr_v= " << curr_v << std::endl;
@@ -284,6 +292,13 @@ void generatePlan(const vector<DMPData> &dmp_list,
 					//std::cout << "    tau= " << tau << std::endl;
 					std::cout << "    v= " << (x - x_old) / dt  << std::endl;
 				}
+
+				// for(int j=i-1; j>=0; j--){
+				// 	double unscaled_v = x_dot_vecs[j].back();
+				// 	x_dot_vecs[j].pop_back();
+				// 	unscaled_v = unscaled_v * scale;
+				// 	x_dot_vecs[j].push_back(unscaled_v);
+				// }
 			}
 
 			//Add current state to the plan

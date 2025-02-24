@@ -10,6 +10,7 @@ from sensor_msgs.msg import PointCloud2
 import pose_conversions as P
 import robot_controller_kinova as rc
 import dmp_node as dmp
+import multiprocessing
 
 class MouldPainter(object):
     def __init__(self):
@@ -32,7 +33,7 @@ class MouldPainter(object):
         tf_pose = P.rotate_pose_about_axis(tf_pose, -90, 'z')
         tf_pose = P.rotate_pose_about_axis(tf_pose, -45, 'x')
         
-        tf_pose = P.pose_brush_padding(tf_pose, math.degrees(theta), 0.01)
+        tf_pose = P.pose_brush_padding(tf_pose, math.degrees(theta), 0.0075)
 
         p = [tf_pose.position.x, tf_pose.position.y, tf_pose.position.z]
         self.tip_trace.append(p)
@@ -43,28 +44,42 @@ class MouldPainter(object):
 
     def robot_mould_goto_dmp(self, start_pose, end_pose, theta):
         start_pose = P.reset_pose_orientation(start_pose)
-        tf_start_pose = P.apply_global_tf_to_pose(start_pose, self.T_mould)
-        tf_start_pose = P.rotate_pose_about_axis(tf_start_pose, 90, 'y')
-        tf_start_pose = P.rotate_pose_about_axis(tf_start_pose, -90, 'z')
-        tf_start_pose = P.rotate_pose_about_axis(tf_start_pose, -45, 'x')
-        tf_start_pose = P.pose_brush_padding(tf_start_pose, math.degrees(theta), 0.01)
+        start_pose = P.apply_global_tf_to_pose(start_pose, self.T_mould)
+        start_pose = P.rotate_pose_about_axis(start_pose, 90, 'y')
+        start_pose = P.rotate_pose_about_axis(start_pose, -90, 'z')
+        start_pose = P.rotate_pose_about_axis(start_pose, -45, 'x')
+        tf_start_pose = P.pose_brush_padding(start_pose, math.degrees(theta), 0.0075)
 
         end_pose = P.reset_pose_orientation(end_pose)
-        tf_end_pose = P.apply_global_tf_to_pose(end_pose, self.T_mould)
-        tf_end_pose = P.rotate_pose_about_axis(tf_end_pose, 90, 'y')
-        tf_end_pose = P.rotate_pose_about_axis(tf_end_pose, -90, 'z')
-        tf_end_pose = P.rotate_pose_about_axis(tf_end_pose, -45, 'x')
-        tf_end_pose = P.pose_brush_padding(tf_end_pose, math.degrees(theta), 0.01)
+        end_pose = P.apply_global_tf_to_pose(end_pose, self.T_mould)
+        end_pose = P.rotate_pose_about_axis(end_pose, 90, 'y')
+        end_pose = P.rotate_pose_about_axis(end_pose, -90, 'z')
+        end_pose = P.rotate_pose_about_axis(end_pose, -45, 'x')
+        tf_end_pose = P.pose_brush_padding(end_pose, math.degrees(theta), 0.0075)
 
-        waypoints = dmp.calculate_dmp(tf_start_pose, tf_end_pose, theta)
+        [waypoints, max_vel] = dmp.calculate_dmp(tf_start_pose, tf_end_pose, theta)
 
+        # proc = multiprocessing.Process(target=plot_waypoints, args=[waypoints])
+        # proc.start()
+
+        # wps = []
         for wp in waypoints:
+            # wp = P.reset_pose_orientation(wp)     
+            # wp = P.apply_global_tf_to_pose(wp, self.T_mould)
+            # wp = P.rotate_pose_about_axis(wp, 90, 'y')
+            # wp = P.rotate_pose_about_axis(wp, -90, 'z')
+            # wp = P.rotate_pose_about_axis(wp, -45, 'x')
+            # wp = P.pose_brush_padding(wp, math.degrees(theta), 0.01)    
+
+            # wps.append(wp)
+
             p = [wp.position.x, wp.position.y, wp.position.z]
             self.tip_trace.append(p)
             pointcloud = P.create_pointcloud2(self.tip_trace, "base_link")
             self.trace_publisher.publish(pointcloud)
 
-        self.robot.go_to_pose_goal_cartesian(waypoints)
+        self.robot.go_to_pose_goal_cartesian(waypoints, max_vel)
+        # proc.join()
     
     def execute(self):
         input("\n============ Press `Enter` to initiate the mould painter\n")
@@ -81,7 +96,7 @@ class MouldPainter(object):
         self.tf_default_pose = P.apply_global_tf_to_pose(self.tf_default_pose, self.T_mould)
         self.tf_default_pose = P.rotate_pose_about_axis(self.tf_default_pose, 90, 'y')
         self.tf_default_pose = P.rotate_pose_about_axis(self.tf_default_pose, -90, 'z')
-        self.tf_default_pose = P.rotate_pose_about_axis(self.tf_default_pose, -60, 'x')
+        self.tf_default_pose = P.rotate_pose_about_axis(self.tf_default_pose, -45, 'x')
 
         roll_0, pitch_0, yaw_0 = P.get_euler_from_pose(self.start_poses[0])
         roll_1, pitch_1, yaw_1 = P.get_euler_from_pose(self.start_poses[1])
@@ -133,6 +148,30 @@ class MouldPainter(object):
 
         print("-- Completed!")
         print(theta_list)
+
+def plot_waypoints(waypoints):
+    # print(waypoints[::9])
+
+    import matplotlib.pyplot as plt 
+    # Create a 3D plot
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+
+    x_traj = [pose.position.x for pose in waypoints]
+    y_traj = [pose.position.y for pose in waypoints]
+    z_traj = [pose.position.z for pose in waypoints]
+    
+    # Plot original trajectory
+    ax.plot(x_traj, y_traj, z_traj, marker='o', linestyle='-', color='blue', label='Original trajectory')
+    
+    # Add labels and legend
+    ax.set_title("3D Trajectory")
+    ax.set_xlabel("X-axis")
+    ax.set_ylabel("Y-axis")
+    ax.set_zlabel("Z-axis")
+    ax.legend()
+    
+    plt.show()
 
 def start_pose_callback(start_pose, mould_painter):
         mould_painter.start_poses.append(start_pose)

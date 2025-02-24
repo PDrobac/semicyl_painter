@@ -225,7 +225,7 @@ def pose_brush_padding(pose: Pose, theta: float, padding: float):
     
     # Apply the rotation matrix to the ZX plane
     # Rotation only affects the X and Z positions in this case
-    z_offset = padding * math.cos(theta_rad)
+    z_offset = padding * math.cos(theta_rad) * 0.25
     x_offset = padding * math.sin(theta_rad)
 
     T_brush = np.eye(4, 4)

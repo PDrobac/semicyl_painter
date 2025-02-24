@@ -163,10 +163,13 @@ def calculate_tool_strokes(radius, tool_width):
     int: The number of tool strokes required (rounded up to ensure full coverage).
     """
     # Effective length of the semicircle to be painted (excluding half-tool widths on both sides)
-    effective_length = np.pi * radius - tool_width
+    effective_length = np.pi * radius
     
     # Calculate the number of strokes (rounding up to ensure full coverage)
     num_strokes = math.ceil(effective_length / tool_width)
+    print(effective_length)
+    print(tool_width)
+    print("NUM_OF_STROKES: " + str(num_strokes))
     return num_strokes
 
 def find_default_pose(point1, point2):
@@ -402,9 +405,13 @@ def plot_strokes_3d(ep_first, forward_vector, diameter_vector, end_points, start
     end_radius (float): The end radius of the semicylinder.
     """
     # Prepare data
-    sp_x_vals = [p.x for p in end_points]
-    sp_y_vals = [p.y for p in end_points]
-    sp_z_vals = [p.z for p in end_points]
+    ep_x_vals = [p.x for p in end_points]
+    ep_y_vals = [p.y for p in end_points]
+    ep_z_vals = [p.z for p in end_points]
+
+    sp_x_vals = [p.x for p in start_points]
+    sp_y_vals = [p.y for p in start_points]
+    sp_z_vals = [p.z for p in start_points]
 
     # 3D Plot
     fig = plt.figure()
@@ -467,7 +474,8 @@ def plot_strokes_3d(ep_first, forward_vector, diameter_vector, end_points, start
         #ax.plot([start.x, end.x], [start.y, end.y], [start.z, end.z], color='blue')
 
     # Plot start points
-    # ax.plot(sp_x_vals, sp_y_vals, sp_z_vals, 'bo')  # Plot start points as blue dots
+    ax.plot(sp_x_vals, sp_y_vals, sp_z_vals, 'go')  # Plot start points as blue dots
+    ax.plot(ep_x_vals, ep_y_vals, ep_z_vals, 'ro')  # Plot start points as blue dots
     # ax.plot(sp_x_vals, sp_y_vals, sp_z_vals, 'r--')  # Connect points with a red dashed line
 
     # Plot hover strokes
@@ -674,7 +682,7 @@ def main():
     # ep_last_str = input("Enter the coordinates of the last start point separated by spaces: ")
 
     # Input from ros launch file
-    tool_width = rospy.get_param("~tool_width", 0.01)  # Default value is 0.05
+    tool_width = rospy.get_param("~tool_width", 0.02)  # Default value is 0.05
     overlap = rospy.get_param("~tool_overlap", 0.0)  # Default value is 0.0
 
     #ep_first_str = rospy.get_param("~ep_first", "0.3 -0.2 0.5")  # Default is "0.2 0.0 0.0"
@@ -687,9 +695,9 @@ def main():
     # sp_first_str = rospy.get_param("~sp_first", "0.57 -0.01875 0.5")  # Default is "0.7 0.0 0.0"
     # ep_last_str = rospy.get_param("~ep_last", "0.3 -0.063 0.5")  # Default is "0.2 -0.5 0.0"
 
-    ep_first_str = rospy.get_param("~ep_first", "-0.165 0.032 0.0")  # Default is "-0.16 0.0315 0.0"
-    sp_first_str = rospy.get_param("~sp_first", "0.0 0.01275 0.0")  # Default is "0.0 0.01275 0.0"
-    ep_last_str = rospy.get_param("~ep_last", "-0.165 -0.032 0.0")  # Default is "-0.16 -0.0315 0.0"
+    ep_first_str = rospy.get_param("~ep_first", "-0.17 0.033 0.0")  # Default is "-0.16 0.0315 0.0"
+    sp_first_str = rospy.get_param("~sp_first", "-0.01 0.01275 0.0")  # Default is "0.0 0.01275 0.0"
+    ep_last_str = rospy.get_param("~ep_last", "-0.17 -0.033 0.0")  # Default is "-0.16 -0.0315 0.0"
     padding = 0.0
 
     # Truncate tool width to include overlap
