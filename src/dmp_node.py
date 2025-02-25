@@ -145,7 +145,7 @@ def get_filtered_stroke_path(T_mould, theta):
     
     return smoothed_traj
 
-def calculate_dmp(start_pose, goal_pose, theta, T_mould=[]):
+def calculate_dmp_painter(start_pose, goal_pose, theta, T_mould=[]):
     if len(T_mould) == 0:
         T_mould = P.get_tf_from_frames("base_link", "mould")
 
@@ -211,6 +211,39 @@ def calculate_dmp(start_pose, goal_pose, theta, T_mould=[]):
     # print("Adjusted vel_scale: " + str(vel_scale))
 
     return [waypoints, max_vel]
+
+def calculate_dmp(traj):
+
+    # Create a DMP from a 3-D trajectory
+    dims = 2
+    dt = 1.0
+    K = 100
+    D = 2.0 * np.sqrt(K)
+    num_bases = 4
+
+    resp = __makeLFDRequest(dims, traj, dt, K, D, num_bases)
+
+    # Set it as the active DMP
+    __makeSetActiveRequest(resp.dmp_list)
+
+    # Now, generate a plan
+    x_dot_0 = [0.0 for _ in range(dims)]
+    t_0 = 0
+    goal_thresh = [0.05 for _ in range(dims)]
+    seg_length = -1            # Plan until convergence to goal
+    tau = 2 * resp.tau         # Desired plan should take twice as long as demo
+    dt = 1.0
+    integrate_iter = 5         # dt is rather large, so this is > 1
+
+    start_position = traj[0]
+    goal_position = traj[-1]
+    plan = __makePlanRequest(start_position, x_dot_0, t_0, goal_position, goal_thresh, seg_length, tau, dt, integrate_iter)
+
+    waypoints = []
+    for point in plan.plan.points:
+        waypoints.append(point.positions)
+
+    return waypoints
 
 def plot_new_3d(traj, pos):
     import matplotlib.pyplot as plt

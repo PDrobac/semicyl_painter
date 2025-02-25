@@ -57,7 +57,7 @@ class MouldPainter(object):
         end_pose = P.rotate_pose_about_axis(end_pose, -45, 'x')
         tf_end_pose = P.pose_brush_padding(end_pose, math.degrees(theta), 0.0075)
 
-        [waypoints, max_vel] = dmp.calculate_dmp(tf_start_pose, tf_end_pose, theta)
+        [waypoints, max_vel] = dmp.calculate_dmp_painter(tf_start_pose, tf_end_pose, theta)
 
         # proc = multiprocessing.Process(target=plot_waypoints, args=[waypoints])
         # proc.start()
