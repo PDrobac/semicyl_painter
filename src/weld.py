@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 
+import time
 import math
 import matplotlib.pyplot as plt
 import scipy.interpolate as interp
 import numpy as np
 import dmp_node as dmp
+from geometry_msgs.msg import Pose
 
-def plot_old_2d(traj, dmp, milestones=[]):
+def plot_2d(traj, dmp, milestones=[]):
     # Extract x and y coordinates
     x_traj = [point[0] for point in traj]
     y_traj = [point[1] for point in traj]
@@ -24,7 +26,7 @@ def plot_old_2d(traj, dmp, milestones=[]):
     plt.legend()
     plt.show()
 
-def plot_new_2d(traj, pos):
+def plot_vels_2d(traj, pos):
     dt = 0.1
     execution_time = len(traj) * dt
     T = np.arange(0, execution_time + dt, dt)
@@ -99,7 +101,7 @@ def funny_loop():
     theta = np.linspace(-np.pi, 2 * np.pi, 500)  # Angle from 0 to pi for a semicircle
     x_semi = radius * np.cos(theta) + radius + 0.5 * (theta + np.pi) # x = r * cos(theta)
     y_semi = radius * np.sin(theta) # y = r * sin(theta)
-    traj = [[x, y] for x, y in zip(x_semi, y_semi)]
+    traj = [[x, y, 0.0] for x, y in zip(x_semi, y_semi)]
     # traj.insert(0, traj[0])
     # traj.append(traj[-1])
 
@@ -107,11 +109,11 @@ def funny_loop():
     traj2 = traj[len(traj) // 2:]
 
     for _ in range(50):
-        point = [traj1[-1][0] - 0.02, traj1[-1][1]]
+        point = [traj1[-1][0] - 0.02, traj1[-1][1], 0.0]
         traj1.append(point)  # Insert the middle value
 
     for tr in traj2:
-        point = [tr[0] - 1, tr[1]]
+        point = [tr[0] - 1, tr[1], 0.0]
         traj1.append(point)  # Insert the middle value
 
     return traj1
@@ -121,7 +123,7 @@ def serious_loop():
     theta = np.linspace(-np.pi, np.pi, 500)  # Angle from 0 to pi for a semicircle
     x_semi = radius * np.cos(theta) + radius + 0.5 * (theta + np.pi) # x = r * cos(theta)
     y_semi = radius * np.sin(theta) # y = r * sin(theta)
-    traj = [[x, y] for x, y in zip(x_semi, y_semi)]
+    traj = [[x, y, 0.0] for x, y in zip(x_semi, y_semi)]
 
     return traj
 
@@ -136,15 +138,15 @@ def resample_curve(points, d, g):
     while current_distance < cumulative_distances[-1]:  # Stay within the original curve length
         new_x = np.interp(current_distance, cumulative_distances, points[:, 0])
         new_y = np.interp(current_distance, cumulative_distances, points[:, 1])
-        new_points.append([new_x, new_y])
+        new_points.append([new_x, new_y, 0.0])
         current_distance += d
 
     current_distance += g - d
     new_x = np.interp(current_distance, cumulative_distances, points[:, 0])
     new_y = np.interp(current_distance, cumulative_distances, points[:, 1])
-    new_points.append([new_x, new_y])
+    new_points.append([new_x, new_y, 0.0])
 
-    return [np.array(new_points), np.array(distances)]
+    return np.array(new_points)
 
 def find_tangents(points):
     phi_list = []
@@ -175,7 +177,7 @@ def warp_curve_arc(points, phi_start, phi_end):
     chord_ang = math.atan2(chord_vec[1], chord_vec[0])
     
     # Compute a perpendicular vector to chord
-    perp_dir = np.array([-chord_dir[1], chord_dir[0]])  # 90-degree rotation
+    perp_dir = np.array([-chord_dir[1], chord_dir[0], chord_dir[2]])  # 90-degree rotation
 
     # Compute radius using intersection formula
     theta = (phi_end - phi_start) / 2  # Half the angle difference
@@ -196,14 +198,15 @@ def warp_curve_arc(points, phi_start, phi_end):
 
     # Generate new warped curve along the arc
     # angles = np.linspace(start_angle, end_angle, len(points)) # Ovo je krivo, nadi angles da pripadaju x vrijednostima
-    warped_points = np.empty((0, 2))
+    warped_points = np.empty((0, 3))
     for i, point in enumerate(points):
         len_progress = ((point[0] - points[0][0]) * np.cos(chord_ang) + (point[1] - points[0][1]) * np.sin(chord_ang)) / chord_length
         radius_offset = - (point[0] - points[0][0]) * np.sin(chord_ang) + (point[1] - points[0][1]) * np.cos(chord_ang)
         angle = start_angle + len_progress * (end_angle - start_angle)
         # print(radius_offset)
         wp = [center[0] + theta * (radius - radius_offset) * np.cos(angle) / abs(theta),
-              center[1] + theta * (radius - radius_offset) * np.sin(angle) / abs(theta)]
+              center[1] + theta * (radius - radius_offset) * np.sin(angle) / abs(theta),
+              0.0]
         # print(warped_points)
         # print(wp)
         warped_points = np.vstack((warped_points, wp))
@@ -211,9 +214,13 @@ def warp_curve_arc(points, phi_start, phi_end):
     return warped_points
 
 def main():
+    # print("Starting...")
+    t0 = time.time()
     demo_path = np.array(funny_loop())
     #demo_pattern = np.array([[0.5*i/200, 0.05*math.sin(i*2*np.pi/200)] for i in range(201)])
     demo_pattern = np.array(serious_loop()) * 0.1
+
+    # print("Demo loaded...")
 
     seg_len = math.sqrt((demo_pattern[-1][0] - demo_pattern[0][0])**2 + (demo_pattern[-1][1] - demo_pattern[0][1])**2)
     path_len = 0.0
@@ -223,27 +230,36 @@ def main():
     num_segments = math.trunc((path_len - seg_len) / seg_len)
     end_seg_len = (path_len - num_segments * seg_len) / 2  # Leftover time for start and end segment
 
-    [milestones, distances] = resample_curve(demo_path, seg_len, end_seg_len)
+    # print("Calculating milestones...")
+
+    milestones = resample_curve(demo_path, seg_len, end_seg_len)
     phi_list = find_tangents(milestones)
 
-    [planned_path, v] = dmp.calculate_dmp(demo_path)  # Outer path planning
+    # print("Done!")
+    #print("Generating path...")
 
-    planned_pattern = np.empty((0, 2))  # Ensure planned_pattern is a 2D array
-    v = [0.0, 0.0]
+    # [planned_path, v] = dmp.calculate_dmp(demo_path)  # Outer path planning
+
+    planned_pattern = np.empty((0, 3))  # Ensure planned_pattern is a 2D array
+    v = [0.0, 0.0, 0.0]
+    d_prev = 0.0
+    tau = dmp.learn_dmp(demo_pattern)
     for i in range(len(milestones) - 1):
         curr = milestones[i]
         next = milestones[i + 1]
         d = next - curr
         theta = math.atan2(d[1], d[0])
 
-        [pattern_increment, v] = dmp.calculate_dmp(demo_pattern, x_0=curr, x_dot_0=v, x_goal=next, theta=theta)
+        [pattern_increment, v] = dmp.generate_dmp(tau, curr, next, v, theta)
         waypoints = warp_curve_arc(pattern_increment, phi_list[i], phi_list[i + 1])
 
         # Append waypoints to planned_pattern using vstack
         planned_pattern = np.vstack((planned_pattern, waypoints))
+        # print("Calculating........." + str(i+1) + "/" + str(len(milestones)-1))
 
-    plot_old_2d(demo_path, planned_pattern, milestones)
-
+    t1 = time.time()
+    print("Execution time: " + str(t1 - t0) + "s")
+    plot_2d(demo_path, planned_pattern, milestones)
 
 if __name__ == "__main__":
     main()

@@ -6,7 +6,7 @@ import rospy
 import rospkg
 import numpy as np
 from geometry_msgs.msg import Pose
-import pose_conversions as P
+import semicyl_painter.src.pose_conversions as P
 from dmp.srv import *
 from dmp.msg import *
 import matplotlib.pyplot as plt
@@ -211,9 +211,9 @@ def calculate_dmp_painter(start_pose, goal_pose, theta, T_mould=[]):
 
     return [waypoints, max_vel]
 
-def calculate_dmp(traj, x_0=np.array([0.0 for _ in range(2)]), x_dot_0=np.array([0.0 for _ in range(2)]), x_goal=[], theta = 0.0):
-    # Create a DMP from a 3-D trajectory
-    dims = 2
+def learn_dmp(traj):
+    # print("...learning")
+    dims = 3
     dt = 1.0
     K = 100
     D = 2.0 * np.sqrt(K)
@@ -224,29 +224,33 @@ def calculate_dmp(traj, x_0=np.array([0.0 for _ in range(2)]), x_dot_0=np.array(
     # Set it as the active DMP
     __makeSetActiveRequest(resp.dmp_list)
 
-    # Now, generate a plan
+    return resp.tau
+
+def generate_dmp(tau, x_0, x_goal, x_dot_0=np.array([0.0 for _ in range(3)]), theta = 0.0):
+    dims = 3
     # x_dot_0 = [0.0 for _ in range(dims)]
     t_0 = 0
     goal_thresh = [0.05 for _ in range(dims)]
     seg_length = -1            # Plan until convergence to goal
-    tau = resp.tau         # Desired plan should take twice as long as demo
     dt = 1.0
     integrate_iter = 5         # dt is rather large, so this is > 1
 
-    if len(x_goal) == 0:
-        x_goal = np.array([a - b + x for a, b, x in zip(traj[-1], traj[0], x_0)])
+    #print("...params set")
     
     # plot_old_2d(traj, [], x_goal)
 
     d = x_goal - x_0
-    d_r = np.array([d[0] * math.cos(-theta) - d[1] * math.sin(-theta), d[0] * math.sin(-theta) + d[1] * math.cos(-theta)])
-    x_dot_0 = np.array([x_dot_0[0] * math.cos(-theta) - x_dot_0[1] * math.sin(-theta), x_dot_0[0] * math.sin(-theta) + x_dot_0[1] * math.cos(-theta)])
-    x_goal_orig = x_goal
+    d_r = np.array([d[0] * math.cos(-theta) - d[1] * math.sin(-theta), d[0] * math.sin(-theta) + d[1] * math.cos(-theta), d[2]])
+    x_dot_0 = np.array([x_dot_0[0] * math.cos(-theta) - x_dot_0[1] * math.sin(-theta), x_dot_0[0] * math.sin(-theta) + x_dot_0[1] * math.cos(-theta), x_dot_0[2]])
     x_goal = d_r
+
+    #print("...rotated")
 
     # plot_old_2d(traj, [], x_goal)
 
     plan = __makePlanRequest(x_0-x_0, x_dot_0, t_0, x_goal, goal_thresh, seg_length, tau, dt, integrate_iter)
+
+    #print("...calculated")
 
     waypoints = []
     for point in plan.plan.points:
@@ -257,13 +261,18 @@ def calculate_dmp(traj, x_0=np.array([0.0 for _ in range(2)]), x_dot_0=np.array(
     wps = []
     for point in waypoints:
         wp = [point[0] * math.cos(theta) - point[1] * math.sin(theta),
-              point[0] * math.sin(theta) + point[1] * math.cos(theta)]
+              point[0] * math.sin(theta) + point[1] * math.cos(theta),
+              point[2]]
         wps.append(wp + x_0)
     
     # plot_old_2d(traj, wps, x_goal_orig)
 
     vels = [plan.plan.points[-1].velocities[0] * math.cos(theta) - plan.plan.points[-1].velocities[1] * math.sin(theta),
-            plan.plan.points[-1].velocities[0] * math.sin(theta) + plan.plan.points[-1].velocities[1] * math.cos(theta)]
+            plan.plan.points[-1].velocities[0] * math.sin(theta) + plan.plan.points[-1].velocities[1] * math.cos(theta),
+            plan.plan.points[-1].velocities[2]]
+    
+
+    #print("...rerotated")
 
     return [wps, vels]
 
