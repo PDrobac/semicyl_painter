@@ -17,7 +17,7 @@ def plot_old_2d(traj, dmp, milestones=[]):
     plt.plot(x_traj, y_traj, 'b-', label='Original trajectory')
     plt.plot(x_dmp, y_dmp, 'r-', label='DMP trajectory')
     # plt.plot(x_wp, y_wp, color='green', label='Welding pattern')
-    # plt.plot(milestones[:, 0], milestones[:, 1], 'go', label="Milestones")
+    plt.plot(milestones[:, 0], milestones[:, 1], 'go', label="Milestones")
     plt.title("Trajectory comparison")
     plt.xlabel("X-axis")
     plt.ylabel("Y-axis")
@@ -116,6 +116,15 @@ def funny_loop():
 
     return traj1
 
+def serious_loop():
+    radius = np.pi/2
+    theta = np.linspace(-np.pi, np.pi, 500)  # Angle from 0 to pi for a semicircle
+    x_semi = radius * np.cos(theta) + radius + 0.5 * (theta + np.pi) # x = r * cos(theta)
+    y_semi = radius * np.sin(theta) # y = r * sin(theta)
+    traj = [[x, y] for x, y in zip(x_semi, y_semi)]
+
+    return traj
+
 def resample_curve(points, d, g):
     points = np.array(points)
     distances = np.sqrt(np.sum(np.diff(points, axis=0) ** 2, axis=1))
@@ -186,13 +195,15 @@ def warp_curve_arc(points, phi_start, phi_end):
         end_angle -= 2 * np.pi * end_angle / abs(end_angle)
 
     # Generate new warped curve along the arc
-    angles = np.linspace(start_angle, end_angle, len(points))
+    # angles = np.linspace(start_angle, end_angle, len(points)) # Ovo je krivo, nadi angles da pripadaju x vrijednostima
     warped_points = np.empty((0, 2))
     for i, point in enumerate(points):
+        len_progress = ((point[0] - points[0][0]) * np.cos(chord_ang) + (point[1] - points[0][1]) * np.sin(chord_ang)) / chord_length
         radius_offset = - (point[0] - points[0][0]) * np.sin(chord_ang) + (point[1] - points[0][1]) * np.cos(chord_ang)
+        angle = start_angle + len_progress * (end_angle - start_angle)
         # print(radius_offset)
-        wp = [center[0] + theta * (radius - radius_offset) * np.cos(angles[i]) / abs(theta),
-              center[1] + theta * (radius - radius_offset) * np.sin(angles[i]) / abs(theta)]
+        wp = [center[0] + theta * (radius - radius_offset) * np.cos(angle) / abs(theta),
+              center[1] + theta * (radius - radius_offset) * np.sin(angle) / abs(theta)]
         # print(warped_points)
         # print(wp)
         warped_points = np.vstack((warped_points, wp))
@@ -201,8 +212,8 @@ def warp_curve_arc(points, phi_start, phi_end):
 
 def main():
     demo_path = np.array(funny_loop())
-    demo_pattern = np.array([[0.5*i/200, 0.05*math.sin(i*2*np.pi/200)] for i in range(201)])
-    pattern_len = demo_pattern[-1]
+    #demo_pattern = np.array([[0.5*i/200, 0.05*math.sin(i*2*np.pi/200)] for i in range(201)])
+    demo_pattern = np.array(serious_loop()) * 0.1
 
     seg_len = math.sqrt((demo_pattern[-1][0] - demo_pattern[0][0])**2 + (demo_pattern[-1][1] - demo_pattern[0][1])**2)
     path_len = 0.0
@@ -231,7 +242,7 @@ def main():
         # Append waypoints to planned_pattern using vstack
         planned_pattern = np.vstack((planned_pattern, waypoints))
 
-    plot_old_2d(planned_path, planned_pattern, milestones)
+    plot_old_2d(demo_path, planned_pattern, milestones)
 
 
 if __name__ == "__main__":
