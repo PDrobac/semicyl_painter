@@ -2,22 +2,22 @@
 
 import math
 import matplotlib.pyplot as plt
+import scipy.interpolate as interp
 import numpy as np
 import dmp_node as dmp
 
-def plot_old_2d(traj, welding_pattern, dmp):
+def plot_old_2d(traj, dmp, milestones=[]):
     # Extract x and y coordinates
     x_traj = [point[0] for point in traj]
     y_traj = [point[1] for point in traj]
     x_dmp = [point[0] for point in dmp]
     y_dmp = [point[1] for point in dmp]
-    x_wp = [point[0] for point in welding_pattern]
-    y_wp = [point[1] for point in welding_pattern]
 
     # Create the plot
-    plt.plot(x_traj, y_traj, color='blue', label='Original trajectory')
-    plt.plot(x_dmp, y_dmp, color='red', label='DMP trajectory')
-    plt.plot(x_wp, y_wp, color='green', label='Welding pattern')
+    plt.plot(x_traj, y_traj, 'b-', label='Original trajectory')
+    plt.plot(x_dmp, y_dmp, 'r-', label='DMP trajectory')
+    # plt.plot(x_wp, y_wp, color='green', label='Welding pattern')
+    # plt.plot(milestones[:, 0], milestones[:, 1], 'go', label="Milestones")
     plt.title("Trajectory comparison")
     plt.xlabel("X-axis")
     plt.ylabel("Y-axis")
@@ -94,52 +94,145 @@ def plot_new_2d(traj, pos):
     ax1.legend()
     plt.tight_layout()
 
-def main():
+def funny_loop():
     radius = np.pi/2
-    theta = np.linspace(-np.pi, 2 * np.pi, 300)  # Angle from 0 to pi for a semicircle
+    theta = np.linspace(-np.pi, 2 * np.pi, 500)  # Angle from 0 to pi for a semicircle
     x_semi = radius * np.cos(theta) + radius + 0.5 * (theta + np.pi) # x = r * cos(theta)
     y_semi = radius * np.sin(theta) # y = r * sin(theta)
-    traj = [(x, y) for x, y in zip(x_semi, y_semi)]
+    traj = [[x, y] for x, y in zip(x_semi, y_semi)]
     # traj.insert(0, traj[0])
     # traj.append(traj[-1])
 
     traj1 = traj[:len(traj) // 2]
     traj2 = traj[len(traj) // 2:]
 
-    for _ in range(20):
-        point = (traj1[-1][0] - 0.05, traj1[-1][1])
+    for _ in range(50):
+        point = [traj1[-1][0] - 0.02, traj1[-1][1]]
         traj1.append(point)  # Insert the middle value
 
     for tr in traj2:
-        point = (tr[0] - 1, tr[1])
+        point = [tr[0] - 1, tr[1]]
         traj1.append(point)  # Insert the middle value
 
-    traj = traj1
+    return traj1
 
-    dist_to_goal = math.sqrt((traj[-1][0]-traj[0][0])**2 + (traj[-1][1]-traj[0][1])**2)
+def resample_curve(points, d, g):
+    points = np.array(points)
+    distances = np.sqrt(np.sum(np.diff(points, axis=0) ** 2, axis=1))
+    cumulative_distances = np.insert(np.cumsum(distances), 0, 0)  # Cumulative distance along the curve
+    
+    new_points = [points[0]]  # Start with the first point
+    current_distance = g
 
-    path = dmp.calculate_dmp(traj)
-    welding_pattern = [(dist_to_goal*i/len(path), 0.05*math.sin(200*i)) for i in range(len(path))]
+    while current_distance < cumulative_distances[-1]:  # Stay within the original curve length
+        new_x = np.interp(current_distance, cumulative_distances, points[:, 0])
+        new_y = np.interp(current_distance, cumulative_distances, points[:, 1])
+        new_points.append([new_x, new_y])
+        current_distance += d
 
-    phi_list = [0.0]
-    for i in range(1, len(path)-1):
-        d_x = path[i+1][0] - path[i-1][0]
-        d_y = path[i+1][1] - path[i-1][1]
+    current_distance += g - d
+    new_x = np.interp(current_distance, cumulative_distances, points[:, 0])
+    new_y = np.interp(current_distance, cumulative_distances, points[:, 1])
+    new_points.append([new_x, new_y])
+
+    return [np.array(new_points), np.array(distances)]
+
+def find_tangents(points):
+    phi_list = []
+    d_x = points[1][0] - points[0][0]
+    d_y = points[1][1] - points[0][1]
+    phi_list.append(math.atan2(d_y, d_x))
+    for i in range(1, len(points)-1):
+        d_x = points[i+1][0] - points[i-1][0]
+        d_y = points[i+1][1] - points[i-1][1]
         phi_list.append(math.atan2(d_y, d_x))
-    phi_list.append(0.0)
+    d_x = points[-1][0] - points[-2][0]
+    d_y = points[-1][1] - points[-2][1]
+    phi_list.append(math.atan2(d_y, d_x))
 
-    waypoints = []
-    for i, phi in enumerate(phi_list):
-        d = welding_pattern[i]
-        d_x = -d[1] * math.sin(phi)
-        d_y = d[1] * math.cos(phi)
-        wp_x = path[i][0] + d_x
-        wp_y = path[i][1] + d_y
-        waypoints.append((wp_x, wp_y))
+    return phi_list
 
+def warp_curve_arc(points, phi_start, phi_end):
+    """
+    Warps the given curve into an arc that smoothly transitions from phi_start to phi_end,
+    while handling arbitrary start-end orientations.
+    """
+    p0, p1 = points[0], points[-1]  # Start and end points
+    
+    # Compute unit vector along chord direction
+    chord_vec = p1 - p0
+    chord_length = np.linalg.norm(chord_vec)
+    chord_dir = chord_vec / chord_length  # Normalize
+    chord_ang = math.atan2(chord_vec[1], chord_vec[0])
+    
+    # Compute a perpendicular vector to chord
+    perp_dir = np.array([-chord_dir[1], chord_dir[0]])  # 90-degree rotation
 
-    # plot_old_2d(traj, welding_pattern, path)
-    plot_old_2d(traj, welding_pattern, waypoints)
+    # Compute radius using intersection formula
+    theta = (phi_end - phi_start) / 2  # Half the angle difference
+    if theta == 0: 
+        return points
+    radius = chord_length / (2 * np.sin(theta)) if np.sin(theta) != 0 else np.inf
+    
+    # Compute center of the circular arc
+    midpoint = (p0 + p1) / 2
+    center = midpoint + theta * perp_dir * np.sqrt(radius**2 - (chord_length / 2) ** 2) / abs(theta)
+
+    # Compute angles for interpolation in the local frame
+    start_angle = np.arctan2(p0[1] - center[1], p0[0] - center[0])
+    end_angle = np.arctan2(p1[1] - center[1], p1[0] - center[0])
+
+    if start_angle - end_angle > np.pi:
+        end_angle -= 2 * np.pi * end_angle / abs(end_angle)
+
+    # Generate new warped curve along the arc
+    angles = np.linspace(start_angle, end_angle, len(points))
+    warped_points = np.empty((0, 2))
+    for i, point in enumerate(points):
+        radius_offset = - (point[0] - points[0][0]) * np.sin(chord_ang) + (point[1] - points[0][1]) * np.cos(chord_ang)
+        # print(radius_offset)
+        wp = [center[0] + theta * (radius - radius_offset) * np.cos(angles[i]) / abs(theta),
+              center[1] + theta * (radius - radius_offset) * np.sin(angles[i]) / abs(theta)]
+        # print(warped_points)
+        # print(wp)
+        warped_points = np.vstack((warped_points, wp))
+
+    return warped_points
+
+def main():
+    demo_path = np.array(funny_loop())
+    demo_pattern = np.array([[0.5*i/200, 0.05*math.sin(i*2*np.pi/200)] for i in range(201)])
+    pattern_len = demo_pattern[-1]
+
+    seg_len = math.sqrt((demo_pattern[-1][0] - demo_pattern[0][0])**2 + (demo_pattern[-1][1] - demo_pattern[0][1])**2)
+    path_len = 0.0
+    for i in range(1, len(demo_path)):
+        path_len += math.sqrt((demo_path[i][0] - demo_path[i-1][0])**2 + (demo_path[i][1] - demo_path[i-1][1])**2)
+
+    num_segments = math.trunc((path_len - seg_len) / seg_len)
+    end_seg_len = (path_len - num_segments * seg_len) / 2  # Leftover time for start and end segment
+
+    [milestones, distances] = resample_curve(demo_path, seg_len, end_seg_len)
+    phi_list = find_tangents(milestones)
+
+    [planned_path, v] = dmp.calculate_dmp(demo_path)  # Outer path planning
+
+    planned_pattern = np.empty((0, 2))  # Ensure planned_pattern is a 2D array
+    v = [0.0, 0.0]
+    for i in range(len(milestones) - 1):
+        curr = milestones[i]
+        next = milestones[i + 1]
+        d = next - curr
+        theta = math.atan2(d[1], d[0])
+
+        [pattern_increment, v] = dmp.calculate_dmp(demo_pattern, x_0=curr, x_dot_0=v, x_goal=next, theta=theta)
+        waypoints = warp_curve_arc(pattern_increment, phi_list[i], phi_list[i + 1])
+
+        # Append waypoints to planned_pattern using vstack
+        planned_pattern = np.vstack((planned_pattern, waypoints))
+
+    plot_old_2d(planned_path, planned_pattern, milestones)
+
 
 if __name__ == "__main__":
     main()
