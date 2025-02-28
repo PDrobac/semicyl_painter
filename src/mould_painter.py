@@ -78,7 +78,7 @@ class MouldPainter(object):
             pointcloud = P.create_pointcloud2(self.tip_trace, "base_link")
             self.trace_publisher.publish(pointcloud)
 
-        self.robot.go_to_pose_goal_cartesian(waypoints, max_vel)
+        self.robot.go_to_pose_goal_cartesian(waypoints)
         # proc.join()
     
     def execute(self):

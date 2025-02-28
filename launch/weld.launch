@@ -1,0 +1,13 @@
+<launch>
+    <arg name="robot_name" default="my_gen3"/>
+    <arg name="start_delay_seconds" default="1"/>
+
+    <!-- Include dmp launch file -->
+    <include file="$(find semicyl_painter)/launch/dmp.launch" ns="$(arg robot_name)" />
+
+    <!-- Launch world frame publisher -->
+    <node pkg="tf2_ros" type="static_transform_publisher" name="world_kinova_broadcaster" args = "0 0 0 0 0 0 1 world base_link" output="screen"/>
+    
+    <!-- Launch mould_painter node -->
+    <node pkg="semicyl_painter" type="weld.py" name="weld_node" ns="$(arg robot_name)" output="screen" launch-prefix="bash -c 'sleep $(arg start_delay_seconds); $0 $@' "/>
+</launch>

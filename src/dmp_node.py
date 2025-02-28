@@ -6,7 +6,7 @@ import rospy
 import rospkg
 import numpy as np
 from geometry_msgs.msg import Pose
-import semicyl_painter.src.pose_conversions as P
+import pose_conversions as P
 from dmp.srv import *
 from dmp.msg import *
 import matplotlib.pyplot as plt
@@ -254,7 +254,7 @@ def generate_dmp(tau, x_0, x_goal, x_dot_0=np.array([0.0 for _ in range(3)]), th
 
     waypoints = []
     for point in plan.plan.points:
-        waypoints.append(point.positions)
+        waypoints.append([point.positions[0], point.positions[1], 0.0])
 
     # plot_old_2d(traj, waypoints, x_goal)
 
@@ -269,7 +269,7 @@ def generate_dmp(tau, x_0, x_goal, x_dot_0=np.array([0.0 for _ in range(3)]), th
 
     vels = [plan.plan.points[-1].velocities[0] * math.cos(theta) - plan.plan.points[-1].velocities[1] * math.sin(theta),
             plan.plan.points[-1].velocities[0] * math.sin(theta) + plan.plan.points[-1].velocities[1] * math.cos(theta),
-            plan.plan.points[-1].velocities[2]]
+            0.0]
     
 
     #print("...rerotated")

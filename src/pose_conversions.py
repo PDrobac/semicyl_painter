@@ -11,6 +11,38 @@ from sensor_msgs.msg import PointCloud2, PointField
 from std_msgs.msg import Header
 from trajectory_msgs.msg import JointTrajectory
 
+import rospy
+from geometry_msgs.msg import Pose
+
+def positions_to_poses(position_list, orientation=None):
+    """
+    Convert a list of [x, y, z] positions to a list of Pose messages.
+    Allows setting a single orientation for all poses.
+    
+    Args:
+        position_list (list of lists): List of [x, y, z] positions.
+        orientation (list of float, optional): Quaternion [x, y, z, w] for all poses.
+            Defaults to (0, 0, 0, 1) (no rotation).
+    
+    Returns:
+        list of Pose: List of Pose messages with positions and orientation.
+    """
+    
+    poses = []
+    default_orientation = [0, 0, 0, 1]  # Identity quaternion (no rotation)
+    
+    # Use provided orientation or default
+    orientation = orientation if orientation is not None else default_orientation
+
+    for pos in position_list:
+        pose = Pose()
+        pose.position.x, pose.position.y, pose.position.z = pos  # Set position
+        pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w = orientation  # Set orientation
+
+        poses.append(pose)
+    
+    return poses
+
 def pose_to_matrix(pose: Pose):
     """
     Convert a Pose message to a 4x4 transformation matrix.

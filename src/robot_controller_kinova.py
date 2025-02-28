@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 
-import math
-import multiprocessing
 import sys
 import rospy
 import rospkg
@@ -50,10 +48,11 @@ class MotionPlanner(object):
         else:
             self.is_init_success = True
 
-        rospack = rospkg.RosPack()
-        package_path = rospack.get_path('semicyl_painter')
-        file_path = f"{package_path}/config/robot_tip.txt"
-        self.T_to_tip = np.loadtxt(file_path)
+        # rospack = rospkg.RosPack()
+        # package_path = rospack.get_path('semicyl_painter')
+        # file_path = f"{package_path}/config/robot_tip.txt"
+        # self.T_to_tip = np.loadtxt(file_path)
+        self.T_to_tip = np.eye(4, 4)
 
     def get_cartesian_pose(self):
         arm_group = self.arm_group
@@ -63,7 +62,7 @@ class MotionPlanner(object):
 
         return transformed_pose
     
-    def go_to_pose_goal_cartesian(self, waypoints, max_vel=-1):
+    def go_to_pose_goal_cartesian(self, waypoints):
         wps = []
         for waypoint in waypoints:
             T_to_tool = P.invert_tf(self.T_to_tip)
@@ -72,7 +71,7 @@ class MotionPlanner(object):
             wps.append(wp)
         
         (plan, fraction) = self.arm_group.compute_cartesian_path(
-            wps, 0.01  # waypoints to follow  # eef_step
+            wps, 0.001  # waypoints to follow  # eef_step
         )
         # offset = 0
 

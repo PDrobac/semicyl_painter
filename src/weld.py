@@ -2,11 +2,15 @@
 
 import time
 import math
+import rospy
 import matplotlib.pyplot as plt
 import scipy.interpolate as interp
 import numpy as np
 import dmp_node as dmp
 from geometry_msgs.msg import Pose
+from sensor_msgs.msg import PointCloud2
+import pose_conversions as P
+import robot_controller_kinova as rc
 
 def plot_2d(traj, dmp, milestones=[]):
     # Extract x and y coordinates
@@ -108,9 +112,9 @@ def funny_loop():
     traj1 = traj[:len(traj) // 2]
     traj2 = traj[len(traj) // 2:]
 
-    for _ in range(50):
-        point = [traj1[-1][0] - 0.02, traj1[-1][1], 0.0]
-        traj1.append(point)  # Insert the middle value
+    # for _ in range(50):
+    #     point = [traj1[-1][0] - 0.02, traj1[-1][1], 0.0]
+    #     traj1.append(point)  # Insert the middle value
 
     for tr in traj2:
         point = [tr[0] - 1, tr[1], 0.0]
@@ -126,6 +130,12 @@ def serious_loop():
     traj = [[x, y, 0.0] for x, y in zip(x_semi, y_semi)]
 
     return traj
+
+def crescent():
+    return np.array([[-np.cos(2*np.pi*i/100)+i/100, np.sin(2*np.pi*i/200), 0.0] for i in range(200)])
+
+def eight():
+    return np.array([[np.sin(2*np.pi*i/100)+i/100, -np.sin(2*np.pi*i/200), 0.0] for i in range(200)])
 
 def resample_curve(points, d, g):
     points = np.array(points)
@@ -214,11 +224,20 @@ def warp_curve_arc(points, phi_start, phi_end):
     return warped_points
 
 def main():
+    robot = rc.MotionPlanner()
+
     # print("Starting...")
     t0 = time.time()
-    demo_path = np.array(funny_loop())
-    #demo_pattern = np.array([[0.5*i/200, 0.05*math.sin(i*2*np.pi/200)] for i in range(201)])
-    demo_pattern = np.array(serious_loop()) * 0.1
+    #demo_path = np.array(funny_loop()) * 0.03 + [0.5, 0.0, 0.0]
+    demo_path_x = np.linspace(0.3, 0.7, 20)
+    demo_path = np.empty((0, 3))
+    for x in demo_path_x:
+        demo_path = np.vstack((demo_path, [x, 0.0, 0.0]))
+
+    #demo_pattern = np.array([[0.5*i/200, 0.05*math.sin(i*2*np.pi/200)] for i in range(200)]) * 0.2
+    #demo_pattern = np.array(serious_loop()) * 0.1
+    #demo_pattern = crescent() * 0.1
+    demo_pattern = eight() * 0.01
 
     # print("Demo loaded...")
 
@@ -240,9 +259,8 @@ def main():
 
     # [planned_path, v] = dmp.calculate_dmp(demo_path)  # Outer path planning
 
-    planned_pattern = np.empty((0, 3))  # Ensure planned_pattern is a 2D array
+    planned_path = np.empty((0, 3))  # Ensure planned_pattern is a 2D array
     v = [0.0, 0.0, 0.0]
-    d_prev = 0.0
     tau = dmp.learn_dmp(demo_pattern)
     for i in range(len(milestones) - 1):
         curr = milestones[i]
@@ -254,12 +272,28 @@ def main():
         waypoints = warp_curve_arc(pattern_increment, phi_list[i], phi_list[i + 1])
 
         # Append waypoints to planned_pattern using vstack
-        planned_pattern = np.vstack((planned_pattern, waypoints))
+        planned_path = np.vstack((planned_path, waypoints))
         # print("Calculating........." + str(i+1) + "/" + str(len(milestones)-1))
 
     t1 = time.time()
     print("Execution time: " + str(t1 - t0) + "s")
-    plot_2d(demo_path, planned_pattern, milestones)
+    plot_2d(demo_path, planned_path, milestones)
+
+    rospy.init_node('weld_node', anonymous=True)
+    trace_publisher = rospy.Publisher('/tip_trace', PointCloud2, queue_size=10)
+    pointcloud = P.create_pointcloud2(planned_path, "base_link")
+    trace_publisher.publish(pointcloud)
+
+    traj = P.positions_to_poses(planned_path, [1, 0, 0, 0])
+
+
+    trace_publisher.publish(pointcloud)
+
+    robot.go_to_pose_goal_cartesian([traj[0]])
+    input("Press ENTER to start")
+
+    trace_publisher.publish(pointcloud)
+    robot.go_to_pose_goal_cartesian(traj)
 
 if __name__ == "__main__":
     main()
