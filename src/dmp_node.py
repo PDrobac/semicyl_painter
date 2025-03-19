@@ -45,12 +45,12 @@ def __makeSetActiveRequest(dmp_list):
         print("Service call failed: %s" % e)
 
 # Generate a plan from a DMP
-def __makePlanRequest(x_0, x_dot_0, t_0, goal, goal_thresh, seg_length, tau, dt, integrate_iter):
+def __makePlanRequest(x_0, x_dot_0, t_0, goal, goal_dot, goal_thresh, seg_length, tau, dt, integrate_iter):
     # print("Starting DMP planning...")
     rospy.wait_for_service('get_dmp_plan')
     try:
         gdp = rospy.ServiceProxy('get_dmp_plan', GetDMPPlan)
-        resp = gdp(x_0, x_dot_0, t_0, goal, goal_thresh, seg_length, tau, dt, integrate_iter)
+        resp = gdp(x_0, x_dot_0, t_0, goal, goal_dot, goal_thresh, seg_length, tau, dt, integrate_iter)
     except rospy.ServiceException as e:
         print("Service call failed: %s" % e)
     # print("DMP planning done")
@@ -213,7 +213,7 @@ def calculate_dmp_painter(start_pose, goal_pose, theta, T_mould=[]):
 
 def learn_dmp(traj):
     # print("...learning")
-    dims = 3
+    dims = len(traj[0])
     dt = 1.0
     K = 100
     D = 2.0 * np.sqrt(K)
@@ -226,8 +226,12 @@ def learn_dmp(traj):
 
     return resp.tau
 
-def generate_dmp(tau, x_0, x_goal, x_dot_0=np.array([0.0 for _ in range(3)]), theta = 0.0):
-    dims = 3
+def generate_dmp(tau, x_0, x_goal, x_dot_0=0.0, goal_dot=0.0, theta = 0.0):
+    dims = len(x_0)
+    if(len(x_dot_0) != len(x_0)):
+        x_dot_0 = np.array([0.0 for _ in range(dims)])
+    if(len(goal_dot) != len(x_goal)):
+        goal_dot = np.array([0.0 for _ in range(dims)])
     # x_dot_0 = [0.0 for _ in range(dims)]
     t_0 = 0
     goal_thresh = [0.05 for _ in range(dims)]
@@ -239,38 +243,45 @@ def generate_dmp(tau, x_0, x_goal, x_dot_0=np.array([0.0 for _ in range(3)]), th
     
     # plot_old_2d(traj, [], x_goal)
 
+    R = np.eye(dims)
+    R[0, 0] = np.cos(-theta)
+    R[0, 1] = -np.sin(-theta)
+    R[1, 0] = np.sin(-theta)
+    R[1, 1] = np.cos(-theta)
+
     d = x_goal - x_0
-    d_r = np.array([d[0] * math.cos(-theta) - d[1] * math.sin(-theta), d[0] * math.sin(-theta) + d[1] * math.cos(-theta), d[2]])
-    x_dot_0 = np.array([x_dot_0[0] * math.cos(-theta) - x_dot_0[1] * math.sin(-theta), x_dot_0[0] * math.sin(-theta) + x_dot_0[1] * math.cos(-theta), x_dot_0[2]])
+
+    d_r = np.dot(d, R.T)
+    # print(x_dot_0)
+    # print(R.T)
+    x_dot_0 = np.dot(x_dot_0, R.T)
+    goal_dot = np.dot(goal_dot, R.T)
     x_goal = d_r
 
     #print("...rotated")
+    # print(x_dot_0)
 
     # plot_old_2d(traj, [], x_goal)
 
-    plan = __makePlanRequest(x_0-x_0, x_dot_0, t_0, x_goal, goal_thresh, seg_length, tau, dt, integrate_iter)
+    plan = __makePlanRequest(x_0-x_0, x_dot_0, t_0, x_goal, goal_dot, goal_thresh, seg_length, tau, dt, integrate_iter)
 
     #print("...calculated")
 
     waypoints = []
     for point in plan.plan.points:
-        waypoints.append([point.positions[0], point.positions[1], 0.0])
+        waypoints.append(point.positions)
 
-    # plot_old_2d(traj, waypoints, x_goal)
+    # plot_old_2d(waypoints, waypoints, x_goal)
 
     wps = []
     for point in waypoints:
-        wp = [point[0] * math.cos(theta) - point[1] * math.sin(theta),
-              point[0] * math.sin(theta) + point[1] * math.cos(theta),
-              point[2]]
+        wp = np.dot(point, R)
         wps.append(wp + x_0)
     
     # plot_old_2d(traj, wps, x_goal_orig)
 
-    vels = [plan.plan.points[-1].velocities[0] * math.cos(theta) - plan.plan.points[-1].velocities[1] * math.sin(theta),
-            plan.plan.points[-1].velocities[0] * math.sin(theta) + plan.plan.points[-1].velocities[1] * math.cos(theta),
-            0.0]
-    
+    vels = np.dot(plan.plan.points[-1].velocities, R)
+
 
     #print("...rerotated")
 

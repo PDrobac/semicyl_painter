@@ -47,8 +47,6 @@ namespace dmp{
 #define MAX_PLAN_LENGTH 1000
 
 double alpha = -log(0.01); //Ensures 99% phase convergence at t=tau
-vector<double> dmp_train_goal;
-vector<double> dmp_train_velocity;
 
 /**
  * @brief Calculate an exp-decaying 1 to 0 phase based on time and the time scaling constant tau
@@ -76,7 +74,6 @@ void learnFromDemo(const DMPTraj &demo,
 				   const int &num_bases,
 				   vector<DMPData> &dmp_list)
 {
-	std::cout << "/// LEARN ///" << std::endl;
 	//Determine traj length and dim
 	int n_pts = demo.points.size();
 	if(n_pts < 1){
@@ -91,9 +88,15 @@ void learnFromDemo(const DMPTraj &demo,
 	double *v_dot_demo = new double[n_pts];
 	double *f_domain = new double[n_pts];
 	double *f_targets = new double[n_pts];
-	FunctionApprox *f_approx = new LinearApprox();
+	FunctionApprox *f_approx = new FourierApprox(n_pts);
 
-	double max_v_demo[dims] = {0.0};
+	double dist_to_goal = 0.0;
+	for(int d=0; d<dims; d++){
+		double res = demo.points[n_pts-1].positions[d] - demo.points[0].positions[d];
+		res *= res;
+		dist_to_goal += res;
+	}
+	dist_to_goal = sqrt(dist_to_goal);
 
 	//Compute the DMP weights for each DOF separately
 	for(int d=0; d<dims; d++){
@@ -101,6 +104,9 @@ void learnFromDemo(const DMPTraj &demo,
 		double curr_d = d_gains[d];
 		double x_0 = demo.points[0].positions[d];
 		double goal = demo.points[n_pts-1].positions[d];
+		//double goal_dot = 0.0;
+		double goal_dot = (goal - demo.points[n_pts-2].positions[d]) / (demo.times[n_pts-1] - demo.times[n_pts-2]);
+		//std::cout << goal_dot << std::endl;
 		x_demo[0] = demo.points[0].positions[d];
 		v_demo[0] = 0;
 		v_dot_demo[0] = 0;
@@ -112,18 +118,14 @@ void learnFromDemo(const DMPTraj &demo,
 			double dt = demo.times[i] - demo.times[i-1];
 			v_demo[i] = dx/dt;
 			v_dot_demo[i] = (v_demo[i] - v_demo[i-1]) / dt;
-
-			if(abs(v_demo[i]) > max_v_demo[d]){
-				max_v_demo[d] = abs(v_demo[i]);
-			}
 		}
 
 		//Calculate the target pairs so we can solve for the weights
 		for(int i=0; i<n_pts; i++){
 			double phase = calcPhase(demo.times[i],tau);
 			f_domain[i] = demo.times[i]/tau;  //Scaled time is cleaner than phase for spacing reasons
-			f_targets[i] = ((tau*tau*v_dot_demo[i] + curr_d*tau*v_demo[i]) / curr_k) - (goal-x_demo[i]) + ((goal-x_0)*phase);
-			f_targets[i] /= phase; // Do this instead of having fxn approx scale its output based on phase
+			f_targets[i] = tau*tau*(v_dot_demo[i]) + curr_d*tau*(v_demo[i] - goal_dot) - (goal-x_demo[i])*curr_k;
+			f_targets[i] /= (phase * dist_to_goal); // Do this instead of having fxn approx scale its output based on phase
 		}
 
 		//Solve for weights
@@ -139,11 +141,6 @@ void learnFromDemo(const DMPTraj &demo,
                     curr_dmp->f_targets.push_back(f_targets[i]);
                 }
 		dmp_list.push_back(*curr_dmp);
-
-		dmp_train_goal.push_back(goal - x_0);
-		dmp_train_velocity.push_back(max_v_demo[d]);
-		std::cout << d+1 << ". velocity is: " << max_v_demo[d] << std::endl;
-
 	}
 
 	delete[] x_demo;
@@ -176,6 +173,7 @@ void generatePlan(const vector<DMPData> &dmp_list,
 				  const vector<double> &x_dot_0,
 				  const double &t_0,
 				  const vector<double> &goal,
+				  const vector<double> &goal_dot,
 				  const vector<double> &goal_thresh,
 				  const double &seg_length,
 				  const double &tau,
@@ -184,7 +182,6 @@ void generatePlan(const vector<DMPData> &dmp_list,
 				  DMPTraj &plan,
 				  uint8_t &at_goal)
 {
-	std::cout << "/// SCALED ///" << std::endl;
 	plan.points.clear();
 	plan.times.clear();
 	at_goal = false;
@@ -199,19 +196,20 @@ void generatePlan(const vector<DMPData> &dmp_list,
 	x_dot_vecs = new vector<double>[dims];
 	FunctionApprox **f = new FunctionApprox*[dims];
 
-	vector<double> max_v;
-	for(int i=0; i<dims; i++){
-		f[i] = new LinearApprox(dmp_list[i].f_domain, dmp_list[i].f_targets);
-
-		double max_v_i = dmp_train_velocity[i] * (goal[i] - x_0[i]) / dmp_train_goal[i];
-		std::cout << i+1 << ". velocity is: " << max_v_i << std::endl;
-		max_v.push_back(max_v_i);
+	for(int i=0; i<dims; i++) {
+		f[i] = new FourierApprox(dmp_list[i].weights);
 	}
+
+	double dist_to_goal = 0.0;
+	for(int d=0; d<dims; d++){
+		double res = goal[d] - x_0[d];
+		res *= res;
+		dist_to_goal += res;
+	}
+	dist_to_goal = sqrt(dist_to_goal);
 	
 	double t = 0;
 	double f_eval;
-
-	std::cout << "/// GENERATE ///" << std::endl;
 
 	//Plan for at least tau seconds.  After that, plan until goal_thresh is satisfied.
 	//Cut off if plan exceeds MAX_PLAN_LENGTH seconds, in case of overshoot / oscillation
@@ -222,7 +220,6 @@ void generatePlan(const vector<DMPData> &dmp_list,
 		if(seg_length > 0){
 			if (t > seg_length) seg_end = true;
 		}
-		double scale = 1.0;
 
 		//Plan in each dimension
 		for(int i=0; i<dims; i++){
@@ -236,8 +233,6 @@ void generatePlan(const vector<DMPData> &dmp_list,
 			    v = x_dot_vecs[i][n_pts-1] * tau;
             }
 
-			double x_old = x;
-
 			//Numerically integrate to get new x and v
 			for(int iter=0; iter<integrate_iter; iter++)
 			{
@@ -249,61 +244,27 @@ void generatePlan(const vector<DMPData> &dmp_list,
 					f_eval = 0;
 				}
 				else{
-					f_eval = f[i]->evalAt(log_s) * s;
+					f_eval = f[i]->evalAt(log_s) * s * dist_to_goal;
 				}
 				
 				//Update v dot and x dot based on DMP differential equations
-				double v_dot = (dmp_list[i].k_gain*((goal[i]-x) - (goal[i]-x_0[i])*s + f_eval) - dmp_list[i].d_gain*v) / tau;
+				//double a = (dmp_list[i].k_gain * (goal[i]-x) + f_eval - dmp_list[i].d_gain * v);
+				double a = (dmp_list[i].k_gain * (goal[i]-x) + f_eval - dmp_list[i].d_gain * (v - goal_dot[i]));
+				double v_dot = a/tau;
 				double x_dot = v/tau;
 
 				//Update state variables
 				v += v_dot * dt;
 				x += x_dot * dt;
-			}
 
-			double curr_v = v/tau;
-			if(abs(curr_v) > 1*abs(max_v[i])) {
-			std::cout << "OVERSHOOT" << std::endl;
-				if(t < 2.0){
-					std::cout << std::setw(4) << std::fixed << std::setprecision(1) << t << " | ";
-					std::cout.unsetf(std::ios::fixed | std::ios::scientific); // Remove fixed/scientific flags
-					std::cout.precision(6);                                   // Reset precision to default
-					std::cout.width(0);                                       // Reset width to default
-					std::cout << i+1 << ". velocity overshoot: " << curr_v << std::endl;
+				if(v != 0){
+					std::cout << v << std::endl;
 				}
-
-
-				if(scale > abs(max_v[i] / curr_v)) {
-					scale = abs(max_v[i] / curr_v);
-				}
-				std::cout << "    scale= " << scale << std::endl;
-				// if(t < 1.0){
-				// 	std::cout << "    x would be: " << x << std::endl;
-				// }
-				// double x_temp_1 = x_old + max_v[i] * dt;
-				// double x_temp_2 = x_old + curr_v * dt;
-				// x = x * (x_temp_1 / x_temp_2);
-				// x = x_old + curr_v;
-				curr_v = 1*max_v[i] * (v/tau)/abs(v/tau);
-				if(t < 2.0){
-					//std::cout << "    x_old= " << x_old << std::endl;
-					//std::cout << "    curr_v= " << curr_v << std::endl;
-					//std::cout << "    iter= " << integrate_iter << std::endl;
-					//std::cout << "    tau= " << tau << std::endl;
-					std::cout << "    v= " << (x - x_old) / dt  << std::endl;
-				}
-
-				// for(int j=i-1; j>=0; j--){
-				// 	double unscaled_v = x_dot_vecs[j].back();
-				// 	x_dot_vecs[j].pop_back();
-				// 	unscaled_v = unscaled_v * scale;
-				// 	x_dot_vecs[j].push_back(unscaled_v);
-				// }
 			}
 
 			//Add current state to the plan
 			x_vecs[i].push_back(x);
-			x_dot_vecs[i].push_back(curr_v);
+			x_dot_vecs[i].push_back(v/tau);
 		}
 		t += total_dt;
 		t_vec.push_back(t);
