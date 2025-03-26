@@ -10,6 +10,7 @@ from geometry_msgs.msg import Pose, Transform
 from sensor_msgs.msg import PointCloud2, PointField
 from std_msgs.msg import Header
 from trajectory_msgs.msg import JointTrajectory
+from scipy.spatial.transform import Rotation as R
 
 import rospy
 from geometry_msgs.msg import Pose
@@ -267,6 +268,65 @@ def pose_brush_padding(pose: Pose, theta: float, padding: float):
     # Apply padding to the YZ translation
     return apply_local_tf_to_pose(pose, T_brush)
 
+def apply_rotation_to_pose_6d(pose, rotation_matrix):
+    """
+    Applies a rotation matrix to a 6D pose (x, y, z, roll, pitch, yaw).
+    
+    :param pose: List or array [x, y, z, roll, pitch, yaw]
+    :param rotation_matrix: 3x3 numpy array representing the rotation
+    :return: Transformed pose [x', y', z', roll', pitch', yaw']
+    """
+    # Extract position and orientation
+    position = np.array(pose[:3])
+    euler_angles = np.array(pose[3:6])  # Roll, Pitch, Yaw
+    dims = len(pose)
+    
+    # Rotate position
+    new_position = rotation_matrix @ position
+    
+    # Convert Euler angles to a rotation matrix
+    rotation_from_euler = R.from_euler('xyz', euler_angles)  # Convert to rotation matrix
+    new_rotation_matrix = rotation_matrix @ rotation_from_euler.as_matrix()  # Apply rotation
+    
+    # Convert back to Euler angles
+    new_euler_angles = R.from_matrix(new_rotation_matrix).as_euler('xyz')
+    
+    # Combine new position and orientation
+    new_pose = np.concatenate((new_position, new_euler_angles))
+    if dims > 6:
+        new_pose = np.concatenate((new_pose, [pose[6]]))
+    return new_pose
+
+def apply_rotation_to_pose_6d_array(pose_array, rotation_matrix):
+    new_pose_array = []
+    for pose in pose_array:
+        new_pose = apply_rotation_to_pose_6d(pose, rotation_matrix)
+        new_pose_array.append(new_pose)
+        
+    return new_pose_array
+
+def rotation_matrix_from_positions(A, B):
+    A, B = np.array(A[:3]), np.array(B[:3])
+    
+    # Compute scale factor s
+    norm_A, norm_B = np.linalg.norm(A), np.linalg.norm(B)
+    # s = norm_A / norm_B if norm_B != 0 else 0  # Avoid division by zero
+    
+    # Normalize A and B
+    A_unit, B_unit = A / norm_A, B / norm_B
+    
+    # Compute rotation matrix R using the outer product and cross product
+    v = np.cross(B_unit, A_unit)
+    c = np.dot(B_unit, A_unit)
+    s = np.linalg.norm(v)
+    Vx = np.array([[  0,   -v[2],  v[1]],
+                   [ v[2],  0,   -v[0]],
+                   [-v[1],  v[0],  0  ]])  # Skew-symmetric cross product matrix
+
+    R = np.eye(3) + Vx + (1 - c) * np.dot(Vx, Vx) / (s ** 2) if c > -1 else -np.eye(3)  # Rodrigues' formula
+
+    # Compute final transformation matrix
+    return R
 
 def invert_tf(matrix: np.ndarray):
     """

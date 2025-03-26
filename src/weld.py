@@ -7,14 +7,17 @@ import math
 import rospy
 import matplotlib.pyplot as plt
 from scipy.interpolate import interp1d
+import tf.transformations as tft
 import numpy as np
-import dmp_node as dmp
 from geometry_msgs.msg import Pose
 from scipy.interpolate import CubicSpline
 from sensor_msgs.msg import PointCloud2
 import pose_conversions as P
 import robot_controller_kinova as rc
 from scipy.signal import savgol_filter
+
+import dmp_node as dmp
+# from movement_primitives.dmp import DMPWithFinalVelocity
 
 def plot_new_3d(traj, pos):
     dt = 1
@@ -74,6 +77,44 @@ def plot_new_3d(traj, pos):
     plt.tight_layout()
     plt.show()
 
+def compute_pose(A, B):
+    """
+    Computes a PoseStamped message where:
+    - The position is taken from point A.
+    - The x-axis of the orientation points towards point B.
+    - The z-axis is pointed downward.
+    
+    :param A: First point (x, y, z)
+    :param B: Second point (x, y, z)
+    :return: PoseStamped message
+    """
+    A = np.array(A)
+    B = np.array(B)
+
+    # Compute direction vector (B - A)
+    direction = B - A
+    direction /= np.linalg.norm(direction)  # Normalize to unit vector
+
+    # Define the coordinate system where:
+    x_axis = direction  # Our computed direction
+    z_axis = np.array([0, 0, -1])  # Z-down assumption
+    y_axis = np.cross(z_axis, x_axis)  # Compute Y-axis as perpendicular to X and Z
+    y_axis /= np.linalg.norm(y_axis)  # Normalize
+    z_axis = np.cross(x_axis, y_axis)  # Recompute Z-axis for orthogonality
+
+    # Construct a 3x3 rotation matrix
+    rotation_matrix = np.eye(4)  # 4x4 for homogeneous transformation
+    rotation_matrix[:3, 0] = x_axis
+    rotation_matrix[:3, 1] = y_axis
+    rotation_matrix[:3, 2] = z_axis
+
+    # Convert rotation matrix to quaternion
+    roll, pitch, yaw = tft.euler_from_matrix(rotation_matrix)
+
+    pose = np.array([A[0], A[1], A[2], roll, pitch, yaw])
+
+    return pose
+
 def interpolate_trajectory(poses, num_points=100):
     """
     Interpolates a trajectory to ensure a more constant velocity.
@@ -115,7 +156,7 @@ def plot_2d(traj, dmp, milestones=[]):
     plt.plot(x_traj, y_traj, 'b-', label='Original trajectory')
     plt.plot(x_dmp, y_dmp, 'r-', label='DMP trajectory')
     # plt.plot(x_wp, y_wp, color='green', label='Welding pattern')
-    # plt.plot(milestones[:, 0], milestones[:, 1], 'go', label="Milestones")
+    plt.plot(milestones[:, 0], milestones[:, 1], 'go', label="Milestones")
     plt.title("Trajectory comparison")
     plt.xlabel("X-axis")
     plt.ylabel("Y-axis")
@@ -228,11 +269,35 @@ def crescent():
 
 def eight():
     n = 200
-    return np.array([[np.sin(2*np.pi*i/(n/2))+i/(n/2), -np.sin(2*np.pi*i/n), 0.0] for i in range(n+1)])
+    return np.array([[np.sin(2*np.pi*i/(n/2))+i/(n/2), -np.sin(2*np.pi*i/n), 0.0] for i in range(n)])
+
+def eight_pose():
+    n = 200
+    p_list = []
+    current = [0.0, 0.0, 0.0]
+    for i in range(1, n+1):
+        next = [np.sin(2*np.pi*i/(n/2))+i/(n/2), -np.sin(2*np.pi*i/n), 0.0]
+        p = compute_pose(current, next)
+        current = next
+        p_list.append(p)
+    return np.array(p_list)
+
+def tangent_pose(p_list):
+    pose_list = []
+    current = p_list[0]
+    for i in range(1, len(p_list)):
+        next = p_list[i]
+        pose_list.append(compute_pose(current, next))
+        current = next
+    final_pose = compute_pose(p_list[-2], p_list[-1])
+    final_pose[:3] = p_list[-1][:3]
+    pose_list.append(final_pose)
+    return pose_list
 
 def resample_curve(points, d, g):
     points = np.array(points)
-    distances = np.sqrt(np.sum(np.diff(points, axis=0) ** 2, axis=1))
+    points3 = points[:, :3]
+    distances = np.sqrt(np.sum(np.diff(points3, axis=0) ** 2, axis=1))
     cumulative_distances = np.insert(np.cumsum(distances), 0, 0)  # Cumulative distance along the curve
     
     new_points = [points[0]]  # Start with the first point
@@ -241,13 +306,21 @@ def resample_curve(points, d, g):
     while current_distance < cumulative_distances[-1]:  # Stay within the original curve length
         new_x = np.interp(current_distance, cumulative_distances, points[:, 0])
         new_y = np.interp(current_distance, cumulative_distances, points[:, 1])
-        new_points.append([new_x, new_y, 0.0])
+        new_z = 0.0
+        new_roll = np.interp(current_distance, cumulative_distances, points[:, 3])
+        new_pitch = np.interp(current_distance, cumulative_distances, points[:, 4])
+        new_yaw = np.interp(current_distance, cumulative_distances, points[:, 5])
+        new_points.append([new_x, new_y, new_z, new_roll, new_pitch, new_yaw])
         current_distance += d
 
     current_distance += g - d
     new_x = np.interp(current_distance, cumulative_distances, points[:, 0])
     new_y = np.interp(current_distance, cumulative_distances, points[:, 1])
-    new_points.append([new_x, new_y, 0.0])
+    new_z = 0.0
+    new_roll = np.interp(current_distance, cumulative_distances, points[:, 3])
+    new_pitch = np.interp(current_distance, cumulative_distances, points[:, 4])
+    new_yaw = np.interp(current_distance, cumulative_distances, points[:, 5])
+    new_points.append([new_x, new_y, new_z, new_roll, new_pitch, new_yaw])
 
     return np.array(new_points)
 
@@ -333,57 +406,71 @@ def pose_callback(poses):
 
 def main():
     t0 = time.time()
-    demo_path_x = np.linspace(0.3, 0.7, 20)
-    demo_path = np.empty((0, 3))
-    for x in demo_path_x:
-        demo_path = np.vstack((demo_path, [x, 0.0, 0.0]))
+    # demo_path_x = np.linspace(0.3, 0.7, 20)
+    # demo_path = np.empty((0, 3))
+    # for x in demo_path_x:
+    #     demo_path = np.vstack((demo_path, [x, x*x*x, 0.0]))
 
-    demo_pattern = eight() * 0.05
+    demo_path = np.array(funny_loop()) * 0.1
+
+    demo_pattern = eight_pose() * 0.05
 
     seg_len = math.sqrt((demo_pattern[-1][0] - demo_pattern[0][0])**2 + (demo_pattern[-1][1] - demo_pattern[0][1])**2)
     path_len = 0.0
     for i in range(1, len(demo_path)):
         path_len += math.sqrt((demo_path[i][0] - demo_path[i-1][0])**2 + (demo_path[i][1] - demo_path[i-1][1])**2)
 
+    print(path_len)
+    print(seg_len)
+
     num_segments = math.trunc((path_len - seg_len) / seg_len)
     end_seg_len = (path_len - num_segments * seg_len) / 2  # Leftover time for start and end segment
 
-    milestones = resample_curve(demo_path, seg_len, end_seg_len)
-    phi_list = find_tangents(milestones)
+    demo_poses = tangent_pose(demo_path)
+    milestones = resample_curve(demo_poses, seg_len, end_seg_len)
+    # phi_list = find_tangents(milestones)
 
-    planned_path = np.empty((0, 3))  # Ensure planned_pattern is a 2D array
-    # v = [0.0, 0.0, 0.0]
-    v = [1, -1, 0.0]
+    planned_path = np.empty((0, 6))  # Ensure planned_pattern is a 2D array
+    v = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    # v = [1, -1, 0.0]
     print(v)
     tau = dmp.learn_dmp(traj=demo_pattern)
+    orig = demo_pattern[-1] - demo_pattern[0]
 
     for i in range(len(milestones) - 1):
         curr = milestones[i]
         next = milestones[i + 1]
         d = next - curr
-        theta = math.atan2(d[1], d[0])
+        # theta = math.atan2(d[1], d[0])
+        R = P.rotation_matrix_from_positions(orig, d)
+        # next = curr + orig
+        # R = np.eye(3)
 
         # goal_dot = [0.0, 0.0, 0.0]
         goal_dot = demo_pattern[-1] - demo_pattern[-2]
-        v = goal_dot
         dx = demo_pattern[-1] - demo_pattern[0]
         dx_new = next - curr
         mult =  np.linalg.norm(dx_new)/np.linalg.norm(dx)
-        print(mult)
+        # print(mult)
         goal_dot *= mult
-        v = goal_dot
+        # v = goal_dot
 
-        [pattern_increment, v] = dmp.generate_dmp(tau=tau, x_0=curr, x_goal=next, x_dot_0=v*2, goal_dot=goal_dot, theta=theta)
+        [pattern_increment, v] = dmp.generate_dmp(tau=tau, x_0=curr, x_goal=next, x_dot_0=v, goal_dot=goal_dot, R=R.T)
 
-        waypoints = warp_curve_arc(pattern_increment, phi_list[i], phi_list[i + 1])
+        # waypoints = warp_curve_arc(pattern_increment, phi_list[i], phi_list[i + 1])
+        waypoints = pattern_increment
+
         planned_path = np.vstack((planned_path, waypoints))
 
-        #plot_2d(demo_path, planned_path)
+        plot_2d(demo_path, planned_path, milestones)
         #plot_new_3d(demo_path, waypoints)
 
-    planned_path = np.vstack((planned_path, demo_path[-1]))
+    # planned_path = np.vstack((planned_path, demo_path[-1]))
 
-    plot_2d(demo_path, planned_path)
+    # planned_path = interpolate_trajectory(planned_path, 500)
+
+    plot_new_3d(demo_path, planned_path)
+    # plot_2d(demo_path, planned_path)
 
     t1 = time.time()
     print("Execution time: " + str(t1 - t0) + "s")

@@ -11,6 +11,73 @@ from dmp.srv import *
 from dmp.msg import *
 import matplotlib.pyplot as plt
 
+from scipy.signal import butter, filtfilt
+
+def butter_lowpass_filter(data, cutoff, fs, order=5):
+    nyquist = 0.5 * fs
+    normal_cutoff = cutoff / nyquist
+    b, a = butter(order, normal_cutoff, btype='low', analog=False)
+    return filtfilt(b, a, data)
+
+
+def plot_new_3d(traj, pos):
+    dt = 1
+    execution_time = len(traj) * dt
+    T = np.arange(0, execution_time, dt)
+
+    plt.figure(figsize=(14, 8))
+    ax1 = plt.subplot(231)
+    ax1.set_title("Dimension 1")
+    ax1.set_xlabel("Time")
+    ax1.set_ylabel("Position")
+    ax2 = plt.subplot(232)
+    ax2.set_title("Dimension 2")
+    ax2.set_xlabel("Time")
+    ax2.set_ylabel("Position")
+    ax3 = plt.subplot(233)
+    ax3.set_title("Dimension 3")
+    ax3.set_xlabel("Time")
+    ax3.set_ylabel("Position")
+
+    ax4 = plt.subplot(234)
+    ax4.set_xlabel("Time")
+    ax4.set_ylabel("Velocity")
+    ax5 = plt.subplot(235)
+    ax5.set_xlabel("Time")
+    ax5.set_ylabel("Velocity")
+    ax6 = plt.subplot(236)
+    ax6.set_xlabel("Time")
+    ax6.set_ylabel("Velocity")
+
+    Y = np.array(traj)
+
+    ax1.plot(T, Y[:, 0], label="Demo")
+    ax2.plot(T, Y[:, 1], label="Demo")
+    ax3.plot(T, Y[:, 2], label="Demo")
+    ax4.plot(T, np.gradient(Y[:, 0]) / dt)
+    ax5.plot(T, np.gradient(Y[:, 1]) / dt)
+    ax6.plot(T, np.gradient(Y[:, 2]) / dt)
+    #ax4.scatter([T[-1]], (Y[-1, 0] - Y[-2, 0]) / dmp.dt_)
+    #ax5.scatter([T[-1]], (Y[-1, 1] - Y[-2, 1]) / dmp.dt_)
+    # ax6.scatter([T[-1]], (Y[-1, 2] - Y[-2, 2]) / dmp.dt_)
+    # dmp.configure(goal_y=np.array([1, 0, 1]), goal_yd=np.array([goal_yd, goal_yd, goal_yd]))
+    dt *= len(traj) / len(pos)
+    execution_time = len(pos) * dt
+    T = np.arange(0, execution_time, dt)
+    ax1.plot(T, np.array(pos)[:, 0])
+    ax2.plot(T, np.array(pos)[:, 1])
+    ax3.plot(T, np.array(pos)[:, 2])
+    ax4.plot(T, np.gradient(np.array(pos)[:, 0]) / dt)
+    ax5.plot(T, np.gradient(np.array(pos)[:, 1]) / dt)
+    ax6.plot(T, np.gradient(np.array(pos)[:, 2]) / dt)
+    #ax4.scatter([T[-1]], [1.0])
+    #ax5.scatter([T[-1]], [0.0])
+    # ax6.scatter([T[-1]], [goal_yd])
+
+    ax1.legend()
+    plt.tight_layout()
+    plt.show()
+
 # Learn a DMP from demonstration data
 def __makeLFDRequest(dims, traj, dt, K_gain, D_gain, num_bases):
     demotraj = DMPTraj()
@@ -214,7 +281,7 @@ def calculate_dmp_painter(start_pose, goal_pose, theta, T_mould=[]):
 def learn_dmp(traj):
     # print("...learning")
     dims = len(traj[0])
-    dt = 1.0
+    dt = 1.0/100
     K = 100
     D = 2.0 * np.sqrt(K)
     num_bases = 4
@@ -226,44 +293,50 @@ def learn_dmp(traj):
 
     return resp.tau
 
-def generate_dmp(tau, x_0, x_goal, x_dot_0=0.0, goal_dot=0.0, theta = 0.0):
+def generate_dmp(tau, x_0, x_goal, x_dot_0=0.0, goal_dot=0.0, R = np.eye(3)):
     dims = len(x_0)
-    if(len(x_dot_0) != len(x_0)):
+    if isinstance(x_dot_0, float):
         x_dot_0 = np.array([0.0 for _ in range(dims)])
-    if(len(goal_dot) != len(x_goal)):
+    if isinstance(goal_dot, float):
         goal_dot = np.array([0.0 for _ in range(dims)])
+    # if isinstance(R, float):
+    #     R = np.eye(dims)
     # x_dot_0 = [0.0 for _ in range(dims)]
     t_0 = 0
     goal_thresh = [0.05 for _ in range(dims)]
     seg_length = -1            # Plan until convergence to goal
-    dt = 1.0
+    dt = 1.0/120
     integrate_iter = 5         # dt is rather large, so this is > 1
 
     #print("...params set")
     
     # plot_old_2d(traj, [], x_goal)
 
-    R = np.eye(dims)
-    R[0, 0] = np.cos(-theta)
-    R[0, 1] = -np.sin(-theta)
-    R[1, 0] = np.sin(-theta)
-    R[1, 1] = np.cos(-theta)
-
-    d = x_goal - x_0
-
-    d_r = np.dot(d, R.T)
+    start_offset = np.array([x_0[0], x_0[1], x_0[2], 0.0, 0.0, 0.0])
+    # start_offset = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+    start = x_0 - start_offset
+    start = P.apply_rotation_to_pose_6d(start, R.T)
+    d = x_goal - start_offset
+    d_r = P.apply_rotation_to_pose_6d(d, R.T)
+    # d_r = np.dot(d, R.T)
     # print(x_dot_0)
     # print(R.T)
-    x_dot_0 = np.dot(x_dot_0, R.T)
-    goal_dot = np.dot(goal_dot, R.T)
-    x_goal = d_r
+    x_dot_0 = P.apply_rotation_to_pose_6d(x_dot_0, R.T)
+    goal_dot = P.apply_rotation_to_pose_6d(goal_dot, R.T)
+    # x_dot_0 = np.dot(x_dot_0, R.T)
+    # goal_dot = np.dot(goal_dot, R.T)
 
     #print("...rotated")
     # print(x_dot_0)
 
     # plot_old_2d(traj, [], x_goal)
+    #print(start + start_offset)
+    #print(d_r + start_offset)
 
-    plan = __makePlanRequest(x_0-x_0, x_dot_0, t_0, x_goal, goal_dot, goal_thresh, seg_length, tau, dt, integrate_iter)
+    plan = __makePlanRequest(start, x_dot_0, t_0, d_r, goal_dot, goal_thresh, seg_length, tau, dt, integrate_iter)
+    print(plan.plan.times[-1])
+
+    print(tau)
 
     #print("...calculated")
 
@@ -275,13 +348,118 @@ def generate_dmp(tau, x_0, x_goal, x_dot_0=0.0, goal_dot=0.0, theta = 0.0):
 
     wps = []
     for point in waypoints:
-        wp = np.dot(point, R)
-        wps.append(wp + x_0)
+        wp = P.apply_rotation_to_pose_6d(point, R)
+        # wp = np.dot(point, R)
+        wps.append(wp + start_offset)
     
     # plot_old_2d(traj, wps, x_goal_orig)
 
-    vels = np.dot(plan.plan.points[-1].velocities, R)
+    vels = P.apply_rotation_to_pose_6d(plan.plan.points[-1].velocities, R)
+    # vels = np.dot(plan.plan.points[-1].velocities, R)
 
+    #print("...rerotated")
+
+    return [wps, vels]
+
+def generate_dmp_7d(tau, x_0, x_goal, x_dot_0=0.0, goal_dot=0.0, R = np.eye(3)):
+    dims = len(x_0)
+    if isinstance(x_dot_0, float):
+        x_dot_0 = np.array([0.0 for _ in range(dims)])
+    if isinstance(goal_dot, float):
+        goal_dot = np.array([0.0 for _ in range(dims)])
+    # if isinstance(R, float):
+    #     R = np.eye(dims)
+    # x_dot_0 = [0.0 for _ in range(dims)]
+    t_0 = 0
+    goal_thresh = [-0.05 for _ in range(dims)]
+    seg_length = -1            # Plan until convergence to goal
+    dt = 1.0/100
+    integrate_iter = 5         # dt is rather large, so this is > 1
+
+    #print("...params set")
+    
+    # plot_old_2d(traj, [], x_goal)
+
+    start_offset = np.array([x_0[0], x_0[1], x_0[2], 0.0, 0.0, 0.0, 0.0])
+    # start_offset = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+    start = x_0 - start_offset
+    start = P.apply_rotation_to_pose_6d(start, R.T)
+    d = x_goal - start_offset
+    d_r = P.apply_rotation_to_pose_6d(d, R.T)
+    # d_r = np.dot(d, R.T)
+    # print(x_dot_0)
+    # print(R.T)
+    x_dot_0 = P.apply_rotation_to_pose_6d(x_dot_0, R.T)
+    goal_dot = P.apply_rotation_to_pose_6d(goal_dot, R.T)
+    # x_dot_0 = np.dot(x_dot_0, R.T)
+    # goal_dot = np.dot(goal_dot, R.T)
+
+    #print("...rotated")
+    # print(x_dot_0)
+
+    # plot_old_2d(traj, [], x_goal)
+    #print(start + start_offset)
+    #print(d_r + start_offset)
+
+    plan = __makePlanRequest(start, x_dot_0, t_0, d_r, goal_dot, goal_thresh, seg_length, tau, dt, integrate_iter)
+
+    #print("...calculated")
+
+    waypoints = []
+    for point in plan.plan.points:
+        waypoints.append(point.positions)
+
+    # plot_old_2d(waypoints, waypoints, x_goal)
+    # traj = np.array(waypoints)
+    # smoothed_traj = np.empty_like(traj)
+    # for i in range(7):
+    #     fs = 100.0  # Sampling frequency in Hz
+    #     cutoff = 5.0  # Desired cutoff frequency in Hz
+    #     signal = traj[:, i]
+
+    #     filtered_signal = butter_lowpass_filter(signal, cutoff, fs)
+    #     smoothed_traj[:, i] = filtered_signal
+
+    traj = waypoints
+    smoothed_traj = []
+    window_size = 21  # Define the window size for smoothing
+    half_window = window_size // 2
+
+    for i in range(len(traj)):
+        x_sum, y_sum, z_sum, roll_sum, pitch_sum, yaw_sum = 0, 0, 0, 0, 0, 0
+        count = 0
+
+        # Compute the average within the window
+        for j in range(max(0, i - half_window), min(len(traj), i + half_window + 1)):
+            x_sum += traj[j][0]
+            y_sum += traj[j][1]
+            z_sum += traj[j][2]
+            roll_sum += traj[j][3]
+            pitch_sum += traj[j][4]
+            yaw_sum += traj[j][5]
+            count += 1
+
+        smoothed_traj.append([
+            x_sum / count,
+            y_sum / count,
+            z_sum / count,
+            roll_sum / count,
+            pitch_sum / count,
+            yaw_sum / count,
+            traj[i][6]
+        ])
+
+    waypoints = smoothed_traj
+    wps = []
+    for point in waypoints:
+        wp = P.apply_rotation_to_pose_6d(point, R)
+        # wp = np.dot(point, R)
+        wps.append(wp + start_offset)
+    
+    # plot_old_2d(traj, wps, x_goal_orig)
+
+    vels = P.apply_rotation_to_pose_6d(plan.plan.points[-1].velocities, R)
+    # vels = np.dot(plan.plan.points[-1].velocities, R)
 
     #print("...rerotated")
 
